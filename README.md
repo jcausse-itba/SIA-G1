@@ -1,7 +1,7 @@
 <p align="center">
   <img src="https://github.com/jcausse-itba/SIA-G1/blob/main/common/assets/itba_logo.png?raw=true" height="120"/>
 </p>
-<h1 align="center">Sistemas de Inteligencia Artificial</h1>
+<h1 align="center">72.27 - Sistemas de Inteligencia Artificial</h1>
 <h2 align="center">Trabajos Prácticos</h2>
 
 ## Grupo 1
