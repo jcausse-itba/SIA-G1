@@ -9,7 +9,7 @@ Standardized instructions and operational guidelines for AI Coding Agents (Antig
 * **Course**: Sistemas de Inteligencia Artificial (SIA) — Assignment / TP-1
 * **Repository Structure**: This folder (`tp-1`) is a project module inside a monorepo.
   * **Git Configuration**: `.gitignore` and `.gitattributes` are managed at the monorepo root. **Do NOT** create local `.gitignore` or `.gitattributes` files inside this subfolder unless explicitly instructed by a human maintainer.
-* **Primary Language**: Python 3.11+
+* **Primary Language**: Python 3.14+ (`requires-python >= 3.14`)
 
 ---
 

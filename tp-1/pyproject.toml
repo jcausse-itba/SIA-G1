@@ -1,0 +1,23 @@
+[project]
+name = "tp-1"
+version = "0.1.0"
+description = "SIA - TP1: Métodos de Búsqueda"
+authors = [
+    { name = "Lautaro Bonseñor", email = "lbonsenor@itba.edu.ar" },
+    { name = "Juan Ignacio Causse", email = "jcausse@itba.edu.ar" },
+    { name = "Augusto Andrés Lanari", email = "alanari@itba.edu.ar" },
+    { name = "Javier Emmanuel Liu", email = "jaliu@itba.edu.ar" },
+    { name = "Nicolás Rivas", email = "nrivas@itba.edu.ar" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "pandas>=3.0.5",
+    "plotly>=6.9.0",
+]
+
+[project.scripts]
+tp-1 = "tp_1.__main__:main"
+
+[build-system]
+requires = ["uv_build>=0.12.3,<0.13.0"]
+build-backend = "uv_build"
