@@ -1,7 +1,4 @@
 # TP 1: Métodos de Búsqueda
-> **72.27 - Sistemas de Inteligencia Artificial (SIA)**  
-> Instituto Tecnológico de Buenos Aires (ITBA)
-> 2do cuatrimestre 2026 - Grupo 1
 
 ## 🛠️ Tecnologías y Entorno
 
