@@ -11,8 +11,6 @@ TODO REVISAR LIBRERIAS UTILIZADAS
   * Data Processing: `pandas`, `numpy`
   * Visualización: `plotly`
 
----
-
 ## 🚀 Instalación y Ejecución
 
 Este proyecto utiliza `uv` para la gestión determinista de dependencias y entornos virtuales.
