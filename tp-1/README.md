@@ -22,9 +22,5 @@ Este proyecto utiliza `uv` para la gestión determinista de dependencias y entor
 
 2. Ejecución
     ```bash
-    uv run python -m tp_1
-    ```
-    o mediante el script CLI registrado:
-    ```bash
     uv run tp-1
     ```
