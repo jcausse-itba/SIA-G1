@@ -15,12 +15,14 @@ TODO REVISAR LIBRERIAS UTILIZADAS
 
 Este proyecto utiliza `uv` para la gestión determinista de dependencias y entornos virtuales.
 
-1. Sincronizar Dependencias
+1. Instalar `uv` (si no lo tiene en su sistema). Para ver instrucciones de instalación para su Sistema Operativo, haga [click aquí](https://docs.astral.sh/uv/getting-started/installation/).
+
+2. Sincronizar Dependencias
     ```bash
     uv sync
     ```
 
-2. Ejecución
+3. Ejecución
     ```bash
     uv run tp-1
     ```
