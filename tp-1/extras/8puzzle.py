@@ -1,9 +1,3 @@
-"""8-Puzzle board model.
-
-Provides :class:`EightPuzzleBoard`, an immutable representation of an 8-puzzle
-game state suitable for use with search algorithms.
-"""
-
 from enum import Enum
 from typing import Iterator
 
@@ -198,3 +192,20 @@ class EightPuzzleBoard:
     
     Just in case, for the sake of clarification, this was human-written, not AI-written.
     """
+
+
+def main() -> None:
+    board = EightPuzzleBoard.from_matrix([
+        [3, 2, 8],
+        [4, 1, 7],
+        [5, 0, 6]
+    ])
+
+    print(board.__repr__())
+
+    for n in board.neighbours():
+        print(n)
+
+
+if __name__ == "__main__":
+    main()

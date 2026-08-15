@@ -1,5 +1,5 @@
 [project]
-name = "tp-1"
+name = "sokoban"
 version = "0.1.0"
 description = "SIA - TP1: Métodos de Búsqueda"
 authors = [
@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.scripts]
-tp-1 = "tp_1.__main__:main"
+tp-1 = "sokoban.__main__:main"
 
 [build-system]
 requires = ["uv_build>=0.12.3,<0.13.0"]
