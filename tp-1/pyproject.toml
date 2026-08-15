@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.scripts]
-tp-1 = "sokoban.__main__:main"
+sokoban = "sokoban.__main__:main"
 
 [build-system]
 requires = ["uv_build>=0.12.3,<0.13.0"]

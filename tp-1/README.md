@@ -24,5 +24,5 @@ Este proyecto utiliza `uv` para la gestión determinista de dependencias y entor
 
 3. Ejecución
     ```bash
-    uv run tp-1
+    uv run sokoban
     ```
