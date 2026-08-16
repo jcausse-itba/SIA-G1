@@ -1,5 +1,6 @@
 from enum import Enum
 from typing import NamedTuple, Self, Sequence
+from board import Direction, Board
 
 class Position(NamedTuple):
     row: int
@@ -9,14 +10,6 @@ class Position(NamedTuple):
         dr, dc = direction.value
         return Position(self.row + dr, self.col + dc)
 
-class Direction(Enum):
-    """Cardinal directions the blank (0) tile can move."""
-
-    UP = (-1, 0)
-    DOWN = (1, 0)
-    LEFT = (0, -1)
-    RIGHT = (0, 1)
-
 # Player and Box are not here since they would overlap
 # ? Maybe add BOX/BOX_ON_GOAL + PLAYER/PLAYER_ON_GOAL, I personally think it's messy
 class Tile(Enum):
@@ -24,7 +17,7 @@ class Tile(Enum):
     WALL = 1
     GOAL = 2
 
-class SokobanBoard:
+class SokobanBoard(Board):
     # ? I understand that Sequence is Python's equivalent of Collection in Java
     def __init__(
             self, 
@@ -64,6 +57,20 @@ class SokobanBoard:
         if len(self.box_positions) != len(box_positions):
             raise ValueError("Duplicate box positions provided.")
 
+        self.deadlock_positions: frozenset[Position] = self._compute_deadlock_positions()
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, SokobanBoard):
+            return NotImplemented
+        return (
+            self.player_position == other.player_position
+            and self.box_positions == other.box_positions
+            and self.grid == other.grid
+        )
+
+    def __hash__(self) -> int:
+        return hash((self.player_position, self.box_positions, self.grid))
+
     @property
     def is_solved(self) -> bool:
         return self.box_positions == self.goal_coordinates
@@ -77,6 +84,7 @@ class SokobanBoard:
         goal_coordinates: frozenset[Position],
         player_position: Position,
         box_positions: frozenset[Position],
+        deadlock_positions: frozenset[Position]
     ) -> Self:
         board = cls.__new__(cls)
         board.grid = grid
@@ -85,6 +93,7 @@ class SokobanBoard:
         board.goal_coordinates = goal_coordinates
         board.player_position = player_position
         board.box_positions = box_positions
+        board.deadlock_positions = deadlock_positions
         return board
 
     def move(self, direction: Direction) -> Self | None:
@@ -101,6 +110,7 @@ class SokobanBoard:
                 goal_coordinates=self.goal_coordinates,
                 player_position=target_pos,
                 box_positions=self.box_positions,
+                deadlock_positions=self.deadlock_positions
             )
 
         box_target = target_pos.move(direction)
@@ -118,6 +128,7 @@ class SokobanBoard:
             goal_coordinates=self.goal_coordinates,
             player_position=target_pos,
             box_positions=new_boxes,
+            deadlock_positions=self.deadlock_positions
         )
 
     def _validate_position(self, pos: Position) -> None:
@@ -128,14 +139,81 @@ class SokobanBoard:
         if self.grid[pos.row][pos.col] == Tile.WALL:
             raise ValueError(f"Entity cannot start inside a WALL at {pos}.")
 
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, SokobanBoard):
-            return NotImplemented
+    def _is_wall(self, pos: Position) -> bool:
+        if not (0 <= pos.row < self.rows and 0 <= pos.col < self.cols):
+            return True
+        return self.grid[pos.row][pos.col] == Tile.WALL
+
+
+    # DEADLOCKS http://sokobano.de/wiki/index.php?title=How_to_detect_deadlocks
+
+    # Basically there are 3 types of deadlocks: Simple, Freeze and Corral
+    # Simple can be computed without boxes, so they should be added as an attribute
+    # Freeze are box-dependent, so they should be calculated per call
+    # ? According to the wiki, Corral is too complex, maybe we should omit them, if so EXPLAIN IN THE PRESENTATION
+    # All of these implementations are taken from the wiki
+    def has_deadlock(self) -> bool:
+        for box_pos in self.box_positions:
+            if box_pos in self.goal_coordinates:
+                continue
+
+            if box_pos in self.deadlock_positions:
+                return True
+
+            if self._is_box_frozen(box_pos):
+                return True
+
+        return False
+
+    def _is_box_frozen(self, pos: Position, checking: frozenset[Position] = frozenset()) -> bool:
+        checking = checking | {pos}
         return (
-            self.player_position == other.player_position
-            and self.box_positions == other.box_positions
-            and self.grid == other.grid
+            self._is_axis_blocked(pos, checking=checking, horizontal=True) 
+            and self._is_axis_blocked(pos, checking=checking)
         )
 
-    def __hash__(self) -> int:
-        return hash((self.player_position, self.box_positions, self.grid))
+    def _is_axis_blocked(self, pos: Position, checking: frozenset[Position], horizontal: bool = False) -> bool:
+        if horizontal:
+            neighbor_a = Position(pos.row, pos.col - 1)
+            neighbor_b = Position(pos.row, pos.col + 1)
+        else:
+            neighbor_a = Position(pos.row - 1, pos.col)
+            neighbor_b = Position(pos.row + 1, pos.col)
+
+        for neighbor in (neighbor_a, neighbor_b):
+            # If there as wall/box on either side
+            if (neighbor in checking or self._is_wall(neighbor)) or (neighbor in self.box_positions and self._is_box_frozen(neighbor, checking)):
+                return True
+
+        if neighbor_a in self.deadlock_positions and neighbor_b in self.deadlock_positions:
+            return True
+
+        return False
+
+
+    def _compute_deadlock_positions(self) -> frozenset[Position]:
+        reachable: set[Position] = set(self.goal_coordinates)
+        stack: list[Position] = list(self.goal_coordinates)
+
+        while stack:
+            box_pos = stack.pop()
+            for direction in Direction:
+                dr, dc = direction.value
+                pulled_box_pos = Position(box_pos.row - dr, box_pos.col - dc)
+                puller_pos = Position(box_pos.row - 2 * dr, box_pos.col - 2 * dc)
+
+                if pulled_box_pos in reachable:
+                    continue
+
+                if self._is_wall(pulled_box_pos) or self._is_wall(puller_pos):
+                    continue
+
+                reachable.add(pulled_box_pos)
+                stack.append(pulled_box_pos)
+
+        return frozenset(
+            Position(r, c)
+            for r in range(self.rows)
+            for c in range(self.cols)
+            if self.grid[r][c] != Tile.WALL and Position(r, c) not in reachable
+        )
