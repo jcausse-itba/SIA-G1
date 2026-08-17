@@ -4,6 +4,7 @@ import sys
 
 from .algorithm.a_star import AStar
 from .loader import load_level
+from .visualizer import SokobanVisualizer
 
 ALGORITHM_REGISTRY = {
     # "dfs": DFS(),
@@ -33,6 +34,13 @@ def parse_args() -> argparse.Namespace:
         help="Search algorithm to use",
     )
 
+    parser.add_argument(
+        "-g", "--gif",
+        type=Path,
+        default=None,
+        help="Optional path to save the solution GIF. If omitted, no GIF is generated.",
+    )
+
     return parser.parse_args()
 
 def main() -> None:
@@ -54,6 +62,11 @@ def main() -> None:
     result = algorithm_solver.search(board)
 
     print(result)
+    
+    if args.gif:
+        print(f"\nGenerating solution GIF at: {args.gif}")
+        viz = SokobanVisualizer()
+        viz.create_solution_gif(board, result.solution, str(args.gif))
 
 if __name__ == "__main__":
     main()
