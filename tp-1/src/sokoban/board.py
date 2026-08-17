@@ -242,7 +242,7 @@ class SokobanBoard(Board):
         stuck boxes on both axes simultaneously.
         """
         return any(
-            box not in self._goal_coordinates and (box in self._deadlock_positions or self._is_box_frozen(box)) \
+            box not in self._goal_coordinates and (self._is_deadlock(box) or self._is_box_frozen(box)) \
             for box in self._box_positions
         )
 
