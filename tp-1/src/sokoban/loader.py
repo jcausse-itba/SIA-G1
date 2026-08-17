@@ -16,7 +16,7 @@ XSB character reference::
 
 from pathlib import Path
 
-from .map import SokobanBoard, Tile
+from .board import SokobanBoard, Tile
 from .utils import Coordinate, ImmutableMatrixBuilder
 
 
