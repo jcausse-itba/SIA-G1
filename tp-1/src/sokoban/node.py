@@ -9,7 +9,7 @@ class Node:
 
     def __init__(self,
         board: Board,
-        depth: int,
+        depth: int = 0,
         parent: Optional[Node] = None,
         direction: Optional[Direction] = None
     ) -> None:
