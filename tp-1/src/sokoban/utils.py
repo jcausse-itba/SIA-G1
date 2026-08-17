@@ -9,6 +9,15 @@ class Direction(Enum):
     LEFT = (0, -1)
     RIGHT = (0, 1)
 
+    def __str__(self):
+        arrows = {
+            Direction.UP: "↑",
+            Direction.DOWN: "↓",
+            Direction.LEFT: "←",
+            Direction.RIGHT: "→",
+        }
+        return arrows[self]
+
 
 class Coordinate(NamedTuple):
     """Immutable ``(row, col)`` position on a 2-D grid.

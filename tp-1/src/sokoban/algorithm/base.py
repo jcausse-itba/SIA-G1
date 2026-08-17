@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
-from sokoban.board import Direction, Board
+from typing import Callable
+from ..board import Direction, Board
 
 class SearchResult:
     success: bool
@@ -27,6 +28,7 @@ class SearchResult:
         return "\n".join(out)
 
 class BaseAlgorithm(ABC):
+    # ? May be static
     @abstractmethod
-    def search(self, initial_state: Board) -> SearchResult:
+    def search(self, initial_state: Board, heuristic: Callable[[Board], float] = lambda board: 0.0) -> SearchResult:
         pass
