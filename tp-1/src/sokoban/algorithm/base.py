@@ -1,0 +1,32 @@
+from abc import ABC, abstractmethod
+from sokoban.board import Direction, Board
+
+class SearchResult:
+    success: bool
+    algorithm: str
+    solution: list[Direction]
+    cost: int
+    expanded_nodes: int
+    frontier_nodes: int
+    elapsed_seconds: float
+    operations_done: int
+
+    def __str__(self) -> str:
+        status = "ÉXITO" if self.success else "FRACASO"
+        out = [
+            f"Algoritmo:        {self.algorithm}",
+            f"Resultado:        {status}",
+            f"Costo solución:   {self.cost if self.success else '-'}",
+            f"Nodos expandidos: {self.expanded_nodes}",
+            f"Nodos frontera:   {self.frontier_nodes}",
+            f"Tiempo (s):       {self.elapsed_seconds:.4f}",
+            f"Operaciones:      {self.operations_done}"
+        ]
+        if self.success:
+            out.append("Solución:         " + " ".join(d.name for d in self.solution))
+        return "\n".join(out)
+
+class BaseAlgorithm(ABC):
+    @abstractmethod
+    def search(self, initial_state: Board) -> SearchResult:
+        pass
