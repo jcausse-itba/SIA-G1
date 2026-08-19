@@ -5,12 +5,20 @@ import sys
 from .algorithm.a_star import AStar
 from .loader import load_level
 from .visualizer import SokobanVisualizer
+from .algorithm.heuristics import matching_with_player_heuristic, min_goal_distance_heuristic, unique_goal_matching_heuristic
 
 ALGORITHM_REGISTRY = {
     # "dfs": DFS(),
     # "bfs": BFS(),
     "astar": AStar(),
     # "greedy": GreedySearch(),
+}
+
+HEURISTIC_REGISTRY = {
+    "min_goal_distance": min_goal_distance_heuristic,
+    "unique_min_goal_distance": unique_goal_matching_heuristic,
+    "player_distance": matching_with_player_heuristic,
+    "none": lambda board: 0.0
 }
 
 def parse_args() -> argparse.Namespace:
@@ -35,6 +43,14 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--heuristic",
+        type=str.lower,
+        choices=list(HEURISTIC_REGISTRY.keys()),
+        default="none",
+        help="Heuristic to use",
+)
+
+    parser.add_argument(
         "-g", "--gif",
         type=Path,
         default=None,
@@ -57,9 +73,10 @@ def main() -> None:
         sys.exit(1)
 
     algorithm_solver = ALGORITHM_REGISTRY[args.algorithm]
+    heuristic = HEURISTIC_REGISTRY[args.heuristic]
     print(f"Running {args.algorithm.upper()} on level: {args.path.name}...\n")
 
-    result = algorithm_solver.search(board)
+    result = algorithm_solver.search(board, heuristic)
 
     print(result)
     
