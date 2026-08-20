@@ -4,11 +4,12 @@ import sys
 
 from .algorithm.a_star import AStar
 from .algorithm.bfs import BFS
+from .algorithm.dfs import DFS
 from .loader import load_level
 from .visualizer import SokobanVisualizer
 
 ALGORITHM_REGISTRY = {
-    # "dfs": DFS(),
+    "dfs": DFS(),
     "bfs": BFS(),
     "astar": AStar(),
     # "greedy": GreedySearch(),
