@@ -3,12 +3,13 @@ from pathlib import Path
 import sys
 
 from .algorithm.a_star import AStar
+from .algorithm.bfs import BFS
 from .loader import load_level
 from .visualizer import SokobanVisualizer
 
 ALGORITHM_REGISTRY = {
     # "dfs": DFS(),
-    # "bfs": BFS(),
+    "bfs": BFS(),
     "astar": AStar(),
     # "greedy": GreedySearch(),
 }
