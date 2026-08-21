@@ -2,14 +2,12 @@
 
 ## 🛠️ Tecnologías y Entorno
 
-* **Lenguaje**: Python `>=3.14`
-* **Gestor de Paquetes y Entorno**: [`uv`](https://github.com/astral-sh/uv)
+- **Lenguaje**: Python `>=3.14`
+- **Gestor de Paquetes y Entorno**: [`uv`](https://github.com/astral-sh/uv)
 
-TODO REVISAR LIBRERIAS UTILIZADAS
-
-* **Librerías Utilizadas**:
-  * Data Processing: `pandas`, `numpy`
-  * Visualización: `plotly`
+- **Librerías Utilizadas**:
+  - Generación de GIFs: `pillow` (instalada vía `uv`)
+  - UI: `tkinter` (parte de la librería estándar de Python)
 
 ## 🚀 Instalación y Ejecución
 
@@ -24,5 +22,5 @@ Este proyecto utiliza `uv` para la gestión determinista de dependencias y entor
 
 3. Ejecución
     ```bash
-    uv run sokoban
+    uv run sokoban-gui
     ```

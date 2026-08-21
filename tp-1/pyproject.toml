@@ -17,6 +17,7 @@ dependencies = [
 
 [project.scripts]
 sokoban = "sokoban.__main__:main"
+sokoban-gui = "sokoban.launcher:main"
 
 [build-system]
 requires = ["uv_build>=0.12.3,<0.13.0"]
