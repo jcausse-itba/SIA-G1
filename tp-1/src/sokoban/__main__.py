@@ -4,13 +4,14 @@ import sys
 
 from .algorithm.a_star import AStar
 from .algorithm.bfs import BFS
+from .algorithm.dfs import DFS
 from .algorithm.greedy import GreedyBFS
-from .loader import load_level
+from .parser.loader import load_level
 from .visualizer import SokobanVisualizer
 from .algorithm.heuristics import matching_with_player_heuristic, min_goal_distance_heuristic, unique_goal_matching_heuristic
 
 ALGORITHM_REGISTRY = {
-    # "dfs": DFS(),
+    "dfs": DFS(),
     "bfs": BFS(),
     "astar": AStar(),
     "greedy": GreedyBFS(),

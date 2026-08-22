@@ -78,7 +78,7 @@ def _run_solver(
             min_goal_distance_heuristic,
             unique_goal_matching_heuristic,
         )
-        from .loader import load_level
+        from .parser.loader import load_level
         from .visualizer import SokobanVisualizer
 
         algorithm_registry = {

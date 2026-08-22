@@ -16,8 +16,8 @@ XSB character reference::
 
 from pathlib import Path
 
-from .board import SokobanBoard, Tile
-from .utils import Coordinate, ImmutableMatrixBuilder
+from ..board import SokobanBoard, Tile
+from ..utils import Coordinate, ImmutableMatrixBuilder
 
 
 _CHAR_TO_TILE: dict[str, Tile] = {
