@@ -30,6 +30,7 @@ HEURISTIC_KEYS: list[str] = [
     "min_goal_distance",
     "unique_min_goal_distance",
     "player_distance",
+    "hungarian",
 ]
 
 # ── Descriptions shown in the GUI ───────────────────────────────────────────
@@ -45,6 +46,7 @@ HEURISTIC_DESCRIPTIONS: dict[str, str] = {
     "min_goal_distance": "Min Goal Distance",
     "unique_min_goal_distance": "Unique Min Goal Distance",
     "player_distance": "Player Distance (matching + player)",
+    "hungarian": "Hungarian (optimal matching)",
 }
 
 # Reverse look-ups: description → key
@@ -74,6 +76,7 @@ def _run_solver(
         from .algorithm.bfs import BFS
         from .algorithm.greedy import GreedyBFS
         from .algorithm.heuristics import (
+            hungarian_matching_heuristic,
             matching_with_player_heuristic,
             min_goal_distance_heuristic,
             unique_goal_matching_heuristic,
@@ -90,6 +93,7 @@ def _run_solver(
             "min_goal_distance": min_goal_distance_heuristic,
             "unique_min_goal_distance": unique_goal_matching_heuristic,
             "player_distance": matching_with_player_heuristic,
+            "hungarian": hungarian_matching_heuristic,
             "none": lambda board: 0.0,
         }
 

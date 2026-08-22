@@ -8,7 +8,7 @@ from .algorithm.dfs import DFS
 from .algorithm.greedy import GreedyBFS
 from .parser.loader import load_level
 from .visualizer import SokobanVisualizer
-from .algorithm.heuristics import matching_with_player_heuristic, min_goal_distance_heuristic, unique_goal_matching_heuristic
+from .algorithm.heuristics import hungarian_matching_heuristic, matching_with_player_heuristic, min_goal_distance_heuristic, unique_goal_matching_heuristic
 
 ALGORITHM_REGISTRY = {
     "dfs": DFS(),
@@ -21,6 +21,7 @@ HEURISTIC_REGISTRY = {
     "min_goal_distance": min_goal_distance_heuristic,
     "unique_min_goal_distance": unique_goal_matching_heuristic,
     "player_distance": matching_with_player_heuristic,
+    "hungarian": hungarian_matching_heuristic,
     "none": lambda board: 0.0
 }
 

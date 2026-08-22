@@ -1,5 +1,7 @@
 from ..board import Board, SokobanBoard
 from typing import cast
+import numpy as np
+from scipy.optimize import linear_sum_assignment
 
 def min_goal_distance_heuristic(board: Board) -> float:
     if not isinstance(board, SokobanBoard):
@@ -66,5 +68,32 @@ def unique_goal_matching_heuristic(board: Board) -> float:
         closest_goal = min(available_goals, key=lambda g: box.manhattan_distance(g))
         total_cost += box.manhattan_distance(closest_goal)
         available_goals.remove(closest_goal)
-        
+
     return float(total_cost)
+
+
+def hungarian_matching_heuristic(board: Board) -> float:
+    """Optimal box-to-goal assignment cost via scipy's Hungarian algorithm.
+    """
+
+    if not isinstance(board, SokobanBoard):
+        return 0.0
+
+    boxes = board.box_positions
+    goals = board.goal_coordinates
+
+    if not boxes or not goals:
+        return 0.0
+
+    unplaced_boxes = [b for b in boxes if b not in goals]
+    if not unplaced_boxes:
+        return 0.0
+
+    goal_list = list(goals)
+    cost_matrix = np.array([
+        [box.manhattan_distance(goal) for goal in goal_list]
+        for box in unplaced_boxes
+    ])
+
+    row_ind, col_ind = linear_sum_assignment(cost_matrix)
+    return float(cost_matrix[row_ind, col_ind].sum())
