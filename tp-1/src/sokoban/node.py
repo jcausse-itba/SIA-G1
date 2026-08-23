@@ -1,6 +1,7 @@
-from .board import Board
+from .board import Board, SokobanBoard
 from .utils import Direction
 from typing import Optional, Iterator, Callable
+from collections import deque
 
 
 class Node:
@@ -35,9 +36,27 @@ class Node:
         return self._direction
 
     def expand(self) -> Iterator[Node]:
-        for direction, board in self._board.derived_boards():
-            if not board.is_deadlock():
-                yield Node(board, self._depth + 1, self, direction)
+        if not isinstance(self._board, SokobanBoard):
+            for direction, board in self._board.derived_boards():
+                if not board.is_deadlock():
+                    yield Node(board, self._depth + 1, self, direction)
+            return
+
+        initial_boxes = self._board.box_positions
+        queue: deque[Node] = deque([self])
+        visited_walks: set[Board] = {self._board}
+        seen_push_boards: set[Board] = set()
+
+        while queue:
+            curr = queue.popleft()
+            for direction, next_board in curr._board.derived_boards():
+                if isinstance(next_board, SokobanBoard) and next_board.box_positions != initial_boxes:
+                    if next_board not in seen_push_boards and not next_board.is_deadlock():
+                        seen_push_boards.add(next_board)
+                        yield Node(next_board, curr._depth + 1, curr, direction)
+                elif next_board not in visited_walks:
+                    visited_walks.add(next_board)
+                    queue.append(Node(next_board, curr._depth + 1, curr, direction))
 
     def is_solution(self) -> bool:
         return self._board.is_solved
