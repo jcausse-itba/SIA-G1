@@ -22,6 +22,7 @@ from ..algorithm.heuristics import (
     matching_with_player_heuristic,
     min_goal_distance_heuristic,
     unique_goal_matching_heuristic,
+    hungarian_matching_heuristic,
 )
 from ..parser.loader import load_level
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -41,6 +42,7 @@ ALGORITHMS_WITH_HEURISTIC = {
 HEURISTIC_REGISTRY = {
     "min_goal_distance": min_goal_distance_heuristic,
     "player_distance": matching_with_player_heuristic,
+    "hungarian_matching": hungarian_matching_heuristic,
     # "unique_min_goal_distance": unique_goal_matching_heuristic,
     # "none": lambda board: 0.0,
 }
