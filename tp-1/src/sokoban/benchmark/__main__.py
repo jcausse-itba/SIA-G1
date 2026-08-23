@@ -12,6 +12,7 @@ import csv
 import sys
 import time
 from pathlib import Path
+from sokoban.benchmark.runner import run_single
 
 from ..algorithm.a_star import AStar
 from ..algorithm.bfs import BFS
@@ -23,6 +24,7 @@ from ..algorithm.heuristics import (
     unique_goal_matching_heuristic,
 )
 from ..parser.loader import load_level
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # Algorithms that don't take a heuristic — run once per level, heuristic col left empty.
 ALGORITHMS_NO_HEURISTIC = {
@@ -96,47 +98,7 @@ def find_level_files(directory: Path, pattern: str, recursive: bool) -> list[Pat
     return sorted(directory.glob(pattern))
 
 
-def run_single(algorithm_name, algorithm, heuristic_name, heuristic_fn, level_path: Path) -> dict:
-    """Load the level fresh and run one (algorithm, heuristic) combo on it."""
-    row = {
-        "level": level_path.name,
-        "algorithm": algorithm_name,
-        "heuristic": heuristic_name or "",
-        "success": False,
-        "cost": "",
-        "expanded_nodes": "",
-        "frontier_nodes": "",
-        "elapsed_seconds": "",
-        "operations_done": "",
-        "solution_length": "",
-        "solution": "",
-        "error": "",
-    }
 
-    try:
-        # Reload the board fresh for every run in case search mutates state.
-        board = load_level(level_path)
-
-        start = time.perf_counter()
-        result = algorithm.search(board, heuristic_fn)
-        wall_time = time.perf_counter() - start
-
-        row["success"] = result.success
-        row["cost"] = result.cost
-        row["expanded_nodes"] = result.expanded_nodes
-        row["frontier_nodes"] = result.frontier_nodes
-        row["elapsed_seconds"] = getattr(result, "elapsed_seconds", wall_time)
-        row["operations_done"] = result.operations_done
-        row["solution_length"] = len(result.solution) if result.solution else 0
-        row["solution"] = "".join(str(d) for d in result.solution) if result.solution else ""
-
-    except Exception as e:  # noqa: BLE001 - we want to capture *any* failure and keep going
-        row["error"] = f"{type(e).__name__}: {e}"
-        row["success"] = False
-        # Uncomment for full tracebacks while debugging:
-        # traceback.print_exc()
-
-    return row
 
 
 def main() -> None:
@@ -163,23 +125,25 @@ def main() -> None:
         writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
         writer.writeheader()
 
-        for level_path in level_files:
-            # Algorithms without a heuristic (bfs)
-            for algo_name, algo in ALGORITHMS_NO_HEURISTIC.items():
-                done += 1
-                print(f"[{done}/{total_runs}] {level_path.name} | {algo_name}")
-                row = run_single(algo_name, algo, "", None, level_path)
-                writer.writerow(row)
-                f.flush()
+        futures = {}
+        with ProcessPoolExecutor(max_workers=1) as executor:
+            for level_path in level_files:
+                # Algorithms without a heuristic (bfs)
+                for algo_name, algo in ALGORITHMS_NO_HEURISTIC.items():
+                    fut = executor.submit(run_single, algo_name, algo, "", None, level_path)
+                    futures[fut] = f"{level_path.name} | {algo_name}"
 
-            # Algorithms with a heuristic (astar, greedy)
-            for algo_name, algo in ALGORITHMS_WITH_HEURISTIC.items():
-                for heuristic_name, heuristic_fn in HEURISTIC_REGISTRY.items():
-                    done += 1
-                    print(f"[{done}/{total_runs}] {level_path.name} | {algo_name} | {heuristic_name}")
-                    row = run_single(algo_name, algo, heuristic_name, heuristic_fn, level_path)
-                    writer.writerow(row)
-                    f.flush()
+                # Algorithms with a heuristic (astar, greedy)
+                for algo_name, algo in ALGORITHMS_WITH_HEURISTIC.items():
+                    for heuristic_name, heuristic_fn in HEURISTIC_REGISTRY.items():
+                        fut = executor.submit(run_single, algo_name, algo, heuristic_name, heuristic_fn, level_path)
+                        futures[fut] = f"{level_path.name} | {algo_name} | {heuristic_name}"
+
+            for future in as_completed(futures):
+                done += 1
+                print(f"[{done}/{total_runs}] {futures[future]}")
+                writer.writerow(future.result())
+                f.flush()
 
     print(f"\nDone. Results written to '{args.output}'.")
 
