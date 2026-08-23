@@ -67,6 +67,7 @@ class BFS(BaseAlgorithm):
         expanded = 0
 
         while frontier:
+            if self.check_memory(): break
             node = frontier.popleft()
             frontier_states.discard(node.board)
             explored.add(node.board)

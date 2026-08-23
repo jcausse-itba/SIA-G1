@@ -73,6 +73,7 @@ class GreedyBFS(BaseAlgorithm):
         expanded = 0
 
         while len(unexplored) > 0:
+            if self.check_memory(): break
             p_node = heapq.heappop(unexplored)
             current_node = p_node.node
             current_board = current_node.board

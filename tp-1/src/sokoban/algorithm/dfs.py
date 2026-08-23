@@ -49,6 +49,7 @@ class DFS(BaseAlgorithm):
         expanded = 0
 
         while frontier:
+            if self.check_memory(): break
             node = frontier.pop()
             frontier_states.discard(node.board)
             

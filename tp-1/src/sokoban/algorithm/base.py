@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Callable
 from ..board import Direction, Board
+import psutil
 
 class SearchResult:
     success: bool
@@ -28,6 +29,13 @@ class SearchResult:
         return "\n".join(out)
 
 class BaseAlgorithm(ABC):
+    _process = psutil.Process()
+
+    @classmethod
+    def check_memory(cls, limit_gb: float = 4.0) -> bool:
+        """Returns True if current process RSS exceeds limit_gb."""
+        return cls._process.memory_info().rss > limit_gb * 1024 * 1024 * 1024
+    
     # ? May be static
     @abstractmethod
     def search(self, initial_state: Board, heuristic: Callable[[Board], float] = lambda board: 0.0) -> SearchResult:
