@@ -17,23 +17,48 @@ from pathlib import Path
 
 import plotly.graph_objects as go
 
-from .common import load_data, successful, config_order, config_color
+from .common import load_data, successful, config_order
 
 METRICS = {
     "expanded_nodes": "Expanded Nodes (avg)",
     "elapsed_seconds": "Elapsed Time (s, avg)",
     "frontier_nodes": "Frontier Size (avg)",
     "operations_done": "Operations Done (avg)",
+    "cost": "Cost (avg)"
 }
+
+# Grouped color palette based on algorithm family & variant
+COLOR_MAP = {
+    "astar - collapsed": "#aec7e8",  # Light Blue
+    "astar": "#1f77b4",            # Dark Blue
+    "bfs - collapsed": "#98df8a",    # Light Green
+    "bfs": "#2ca02c",              # Dark Green
+    "dfs - collapsed": "#dbdb8d",    # Light Yellow-Olive
+    "dfs": "#bcbd22",              # Dark Yellow-Olive
+    "greedy - collapsed": "#ff9896", # Light Red / Coral
+    "greedy": "#d62728",           # Dark Red
+}
+
+
+def get_config_color(config: str) -> str:
+    """Assigns a visual color based on the algorithm family and state collapse status."""
+    for key, color in COLOR_MAP.items():
+        if config.startswith(key):
+            return color
+    return "#7f7f7f"  # Fallback grey for unmapped configs
 
 
 def build(df) -> go.Figure:
     ok = successful(df)
+    
     # Sort configurations alphabetically
     configs = sorted(config_order(ok))
 
     means = ok.groupby("config")[list(METRICS.keys())].mean().reindex(configs)
     counts = ok.groupby("config").size().reindex(configs).fillna(0).astype(int)
+
+    # Generate color scheme matching sorted configurations
+    colors = [get_config_color(c) for c in configs]
 
     fig = go.Figure()
 
@@ -43,7 +68,9 @@ def build(df) -> go.Figure:
             go.Bar(
                 x=configs,
                 y=means[metric],
-                marker_color=[config_color(c) for c in configs],
+                marker_color=colors,
+                text=means[metric].round(2),
+                textposition="outside",
                 customdata=counts.values,
                 hovertemplate="%{x}<br>" + METRICS[metric] + ": %{y:.2f}<br>n=%{customdata}<extra></extra>",
                 visible=(i == 0),
