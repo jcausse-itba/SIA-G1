@@ -30,6 +30,8 @@ def build(df) -> go.Figure:
             go.Bar(
                 x=configs,
                 y=sub["elapsed_seconds"],
+                texttemplate="%{y:.3f}s",
+                textposition="auto",
                 marker_color=[config_color(c) for c in configs],
                 hovertemplate="%{x}<br>Time: %{y:.3f}s<extra></extra>",
                 visible=(i == 0),

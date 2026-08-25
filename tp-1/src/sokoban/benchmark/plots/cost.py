@@ -36,6 +36,8 @@ def build(df) -> go.Figure:
             go.Bar(
                 x=configs,
                 y=sub["cost"],
+                texttemplate="%{y}",
+                textposition="auto",
                 marker_color=[config_color(c) for c in configs],
                 hovertemplate="%{x}<br>Cost: %{y}<extra></extra>",
                 visible=(i == 0),
