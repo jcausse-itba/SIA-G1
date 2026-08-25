@@ -11,7 +11,7 @@ import argparse
 from pathlib import Path
 
 from .common import load_data
-from . import cost, ebf, effort_vs_quality, heuristic_quality, scalability, search_effort, temperature
+from . import cost, ebf, effort_vs_quality, heuristic_quality, scalability, search_effort, temperature, time
 
 # (module, output filename)
 MODULES = [
@@ -21,6 +21,7 @@ MODULES = [
     (ebf, "effective_branching_factor.html"),
     (scalability, "scalability.html"),
     (cost, "cost_optimality.html"),
+    (time, "time.html"),
     (temperature, "heat_map.html")
 ]
 
