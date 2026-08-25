@@ -52,6 +52,10 @@ python.exe -m sokoban
 
 ### Benchmark de coleccion de niveles
 
+```sh
+python.exe -m sokoban.benchmark
+```
+
 > [!NOTE] OPCIONES
 >
 > Especificar el directorio que contiene los archivos .level
@@ -68,6 +72,10 @@ python.exe -m sokoban
 
 ### Mediciones de las benchmark de colección de niveles
 
+```sh
+python.exe -m sokoban.benchmark.plots
+```
+
 > [!NOTE] OPCIONES
 >
 > Especificar el path al .csv
@@ -75,3 +83,9 @@ python.exe -m sokoban
 >
 > Especificar el directorio donde crear los graficos (default: `plots_output`)
 > `-o, --outdir OUTDIR`
+
+### Parseo de niveles .sok
+
+```sh
+python.exe -m sokoban.parser PATH
+```
