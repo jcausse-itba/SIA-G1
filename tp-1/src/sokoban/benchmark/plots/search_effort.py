@@ -29,7 +29,8 @@ METRICS = {
 
 def build(df) -> go.Figure:
     ok = successful(df)
-    configs = config_order(ok)
+    # Sort configurations alphabetically
+    configs = sorted(config_order(ok))
 
     means = ok.groupby("config")[list(METRICS.keys())].mean().reindex(configs)
     counts = ok.groupby("config").size().reindex(configs).fillna(0).astype(int)
