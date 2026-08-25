@@ -10,10 +10,11 @@ that exposes every option from ``__main__.py``:
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from pathlib import Path
 import sys
 import threading
 import tkinter as tk
-from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import TYPE_CHECKING
 
@@ -24,7 +25,7 @@ if TYPE_CHECKING:
 # Imported lazily inside _run_solver() to avoid circular-import issues when
 # this module is imported directly.
 
-ALGORITHM_KEYS: list[str] = ["bfs", "astar", "greedy"]
+ALGORITHM_KEYS: list[str] = ["dfs", "bfs", "astar", "greedy"]
 HEURISTIC_KEYS: list[str] = [
     "none",
     "min_goal_distance",
@@ -36,6 +37,7 @@ HEURISTIC_KEYS: list[str] = [
 # ── Descriptions shown in the GUI ───────────────────────────────────────────
 
 ALGORITHM_DESCRIPTIONS: dict[str, str] = {
+    "dfs": "DFS – Depth-First Search",
     "bfs": "BFS – Breadth-First Search",
     "astar": "A* – A-Star Search",
     "greedy": "Greedy – Greedy Best-First Search",
@@ -62,8 +64,8 @@ def _run_solver(
     heuristic_key: str,
     gif_path: Path | None,
     *,
-    on_done: "callable",
-    on_error: "callable",
+    on_done: Callable[[str], None],
+    on_error: Callable[[str], None],
 ) -> None:
     """Execute the Sokoban solver in the calling thread.
 
@@ -74,6 +76,7 @@ def _run_solver(
         # Late imports to avoid circular references and keep module load fast.
         from .algorithm.a_star import AStar
         from .algorithm.bfs import BFS
+        from .algorithm.dfs import DFS
         from .algorithm.greedy import GreedyBFS
         from .algorithm.heuristics import (
             hungarian_matching_heuristic,
@@ -85,6 +88,7 @@ def _run_solver(
         from .visualizer import SokobanVisualizer
 
         algorithm_registry = {
+            "dfs": DFS(),
             "bfs": BFS(),
             "astar": AStar(),
             "greedy": GreedyBFS(),
@@ -132,10 +136,10 @@ class SokobanLauncher(tk.Tk):
         # ── Variables ────────────────────────────────────────────────────
         self._level_var = tk.StringVar()
         self._alg_var = tk.StringVar(
-            value=ALGORITHM_DESCRIPTIONS[ALGORITHM_KEYS[1]]  # default: astar
+            value=ALGORITHM_DESCRIPTIONS["astar"]  # default: astar
         )
         self._heur_var = tk.StringVar(
-            value=HEURISTIC_DESCRIPTIONS[HEURISTIC_KEYS[0]]  # default: none
+            value=HEURISTIC_DESCRIPTIONS["none"]  # default: none
         )
         self._gif_var = tk.StringVar()
 
@@ -223,7 +227,7 @@ class SokobanLauncher(tk.Tk):
     def _browse_level(self) -> None:
         path = filedialog.askopenfilename(
             title="Select a Sokoban level file",
-            filetypes=[("All files", "*.*")],
+            filetypes=[("Level files", "*.level"), ("All files", "*.*")],
         )
         if path:
             self._level_var.set(path)
