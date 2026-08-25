@@ -20,23 +20,16 @@ NUMERIC_COLUMNS = [
     "solution_length",
 ]
 
-# Fixed order / color so every chart uses the same visual language for a given config.
-CONFIG_ORDER = [
-    "bfs",
-    "dfs",
-    "astar (min_goal_distance)",
-    "astar (player_distance)",
-    "greedy (min_goal_distance)",
-    "greedy (player_distance)",
-]
-
-CONFIG_COLORS = {
-    "bfs": "#7f7f7f",
-    "dfs": "#bcbd22",
-    "astar (min_goal_distance)": "#1f77b4",
-    "astar (player_distance)": "#17becf",
-    "greedy (min_goal_distance)": "#d62728",
-    "greedy (player_distance)": "#ff7f0e",
+# Grouped color palette based on algorithm family & state collapse status
+COLOR_MAP = {
+    "astar - collapsed": "#aec7e8",  # Light Blue
+    "astar": "#1f77b4",              # Dark Blue
+    "bfs - collapsed": "#98df8a",    # Light Green
+    "bfs": "#2ca02c",                # Dark Green
+    "dfs - collapsed": "#dbdb8d",    # Light Yellow-Olive
+    "dfs": "#bcbd22",                # Dark Yellow-Olive
+    "greedy - collapsed": "#ff9896", # Light Red / Coral
+    "greedy": "#d62728",             # Dark Red
 }
 
 
@@ -66,11 +59,13 @@ def successful(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def config_order(df: pd.DataFrame) -> list[str]:
-    present = set(df["config"].unique())
-    ordered = [c for c in CONFIG_ORDER if c in present]
-    remaining = sorted(present - set(ordered))
-    return ordered + remaining
+    """Returns unique configurations sorted alphabetically."""
+    return sorted(df["config"].unique())
 
 
 def config_color(config: str) -> str:
-    return CONFIG_COLORS.get(config, "#999999")
+    """Assigns visual color based on algorithm family prefix."""
+    for key, color in COLOR_MAP.items():
+        if config.startswith(key):
+            return color
+    return "#7f7f7f"
