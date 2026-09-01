@@ -15,4 +15,5 @@
 
 ## Trabajos Prácticos
 
-* [**TP 1**](https://github.com/jcausse-itba/SIA-G1/tree/main/tp-1): Métodos de Búsqueda
+- [**TP 1**: Métodos de Búsqueda](https://github.com/jcausse-itba/SIA-G1/tree/main/tp-1)
+- [**TP 2**: Algoritmos Genéticos](https://github.com/jcausse-itba/SIA-G1/tree/main/tp-2)
