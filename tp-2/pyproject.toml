@@ -1,10 +1,14 @@
 [project]
 name = "tp-2"
 version = "0.1.0"
-description = "Add your description here"
+description = "SIA - TP2: Algoritmos Genéticos"
 readme = "README.md"
 authors = [
-    { name = "Lautaro Bonseñor", email = "lbonsenor@itba.edu.ar" }
+    { name = "Lautaro Bonseñor", email = "lbonsenor@itba.edu.ar" },
+    { name = "Juan Ignacio Causse", email = "jcausse@itba.edu.ar" },
+    { name = "Augusto Andrés Lanari", email = "alanari@itba.edu.ar" },
+    { name = "Javier Emmanuel Liu", email = "jaliu@itba.edu.ar" },
+    { name = "Nicolás Rivas", email = "nrivas@itba.edu.ar" }
 ]
 requires-python = ">=3.14"
 dependencies = [
@@ -13,7 +17,7 @@ dependencies = [
 ]
 
 [project.scripts]
-tp-2 = "tp_2:main"
+tp-2 = "tp_2.__main__:main"
 
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]
