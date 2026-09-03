@@ -6,7 +6,7 @@
 - **Gestor de Paquetes y Entorno**: [`uv`](https://github.com/astral-sh/uv)
 - **Librerías Utilizadas**:
     - TODO
-    - A lib 
+    - A lib
     - Another lib
 
 ## Instalación y Ejecución
@@ -23,5 +23,5 @@ Este proyecto utiliza `uv` para la gestión determinista de dependencias y entor
 
 3. Ejecución
     ```bash
-    uv run tp-2
+    uv run tp_2
     ```
