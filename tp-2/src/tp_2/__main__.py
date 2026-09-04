@@ -1,57 +1,56 @@
 import sys
-import time
-from pathlib import Path
-
-from tp_2.config.parser import build_parser
 from tp_2.config.loader import load_and_merge_config
+from tp_2.config.parser import build_parser
 from tp_2.config.validator import validate_config
-from tp_2.image.utils import ImageUtils
-from tp_2.ga.fitness import FitnessEvaluator
 from tp_2.ga.engine import GAEngine
+from tp_2.ga.fitness import FitnessEvaluator
 from tp_2.image.render import render_individual
+from tp_2.image.utils import ImageUtils
+
 
 def main() -> None:
-    parser = build_parser()
+  parser = build_parser()
 
-    try:
-        cfg = load_and_merge_config(parser)
-        validate_config(cfg)
-    except Exception as e:
-        print(f"Configuration error: {e}", file=sys.stderr)
-        sys.exit(1)
+  try:
+    cfg = load_and_merge_config(parser)
+    validate_config(cfg)
+  except Exception as e:
+    print(f"Configuration error: {e}", file=sys.stderr)
+    sys.exit(1)
 
-    print("\n[OK] Configuration parsed and validated successfully.")
+  print("\n[OK] Configuration parsed and validated successfully.")
 
-    # Cargar imagen objetivo
-    image_path = getattr(cfg, 'image_path', 'figures/canada-flag.png')
-    output_path = getattr(cfg, 'output_path', 'output.png')
+  # Soporte para la ruta de la imagen desde CLI o YAML
+  image_path = getattr(cfg, "image_path", getattr(cfg, "image", None))
+  if not image_path:
+    image_path = "figures/germany-flag.png"
 
-    print(f"Cargando imagen: {image_path}")
-    target_img = ImageUtils.load_target_image(image_path)
+  output_path = getattr(cfg, "output_path", "output.png")
 
-    # Cargar versión liviana para el loop de evolución (128x128 px)
-    target_img_eval = ImageUtils.load_target_image(
-        image_path, max_size=(128, 128)
-    )
+  print(f"Cargando imagen: {image_path}")
 
-    # Cargar también la resolución original solo para guardar el resultado final
-    target_img_full = ImageUtils.load_target_image(image_path)
+  # Resolución para evaluación rápida en el loop evolutivo (por defecto 128px)
+  eval_size = getattr(cfg, "eval_size", 128)
 
-    evaluator = FitnessEvaluator(target_img_eval)
+  # Imagen en baja resolución para acelerar el cálculo de fitness
+  target_img_eval = ImageUtils.load_target_image(
+      image_path, max_size=(eval_size, eval_size)
+  )
 
-    # Correr motor
-    engine = GAEngine(cfg, evaluator)
-    start_t = time.time()
-    best_individual = engine.run()
-    elapsed = time.time() - start_t
+  # Imagen original completa para el renderizado final
+  target_img_full = ImageUtils.load_target_image(image_path)
 
-    print(f"\nEvolución completada en {elapsed:.2f}s | Mejor Fitness Final: {best_individual.fitness:.4f}")
+  evaluator = FitnessEvaluator(target_img_eval)
+  engine = GAEngine(cfg, evaluator)
 
-    # Renderizar y guardar imagen final
-    print(f"Guardando imagen generada en {output_path}...")
-    rendered_rgb = render_individual(best_individual, evaluator.width, evaluator.height)
-    ImageUtils.save_image(rendered_rgb, output_path)
-    print("¡Proceso completado exitosamente!")
+  best_individual = engine.run()
+
+  # Renderizado final con la resolución nativa original
+  final_render = render_individual(
+      best_individual, target_img_full.shape[1], target_img_full.shape[0]
+  )
+  ImageUtils.save_image(final_render, output_path)
+
 
 if __name__ == "__main__":
-    main()
+  main()

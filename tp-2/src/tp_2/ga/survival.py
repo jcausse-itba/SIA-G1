@@ -1,31 +1,38 @@
-from typing import List, Callable
+import copy
+from typing import Callable, List
 from tp_2.ga.individual import Individual
 
-class Survival:
-    """Estrategias de supervivencia para conformar la nueva generación."""
 
-    @staticmethod
-    def select(
-        parents: List[Individual],
-        children: List[Individual],
-        population_size: int,
-        strategy: str,
-        selector_func: Callable[[List[Individual], int], List[Individual]]
-    ) -> List[Individual]:
-        
-        if strategy == "additive":
-            # Mu + Lambda: Selección sobre la unión de padres e hijos
-            pool = parents + children
-            return selector_func(pool, population_size)
-            
-        elif strategy == "exclusive":
-            # Mu, Lambda: Selección únicamente sobre la descendencia
-            if len(children) >= population_size:
-                return selector_func(children, population_size)
-            else:
-                # Si faltan hijos, rellenar con los mejores padres
-                needed = population_size - len(children)
-                sorted_parents = sorted(parents, key=lambda x: x.fitness, reverse=True)
-                return children + sorted_parents[:needed]
-        else:
-            raise ValueError(f"Estrategia de supervivencia desconocida: {strategy}")
+class Survival:
+
+  @staticmethod
+  def select(
+      parents: List[Individual],
+      children: List[Individual],
+      pop_size: int,
+      strategy: str,
+      selector: Callable[[List[Individual], int], List[Individual]],
+      elitism: int = 0,
+  ) -> List[Individual]:
+    # Pool de selección según la estrategia (aditiva: mu + lambda, exclusiva: lambda)
+    if strategy == "additive":
+      pool = parents + children
+    else:  # subtractive / exclusive
+      pool = children if len(children) >= pop_size else parents + children
+
+    # Separar la élite si está configurada
+    elite: List[Individual] = []
+    if elitism > 0:
+      # La élite siempre se extrae de la combinación de padres e hijos
+      full_pool = sorted(
+          parents + children, key=lambda ind: ind.fitness, reverse=True
+      )
+      elite = [copy.deepcopy(ind) for ind in full_pool[:elitism]]
+
+    remaining_k = pop_size - len(elite)
+    if remaining_k <= 0:
+      return elite[:pop_size]
+
+    # Seleccionar el resto mediante el método configurado
+    selected = selector(pool, remaining_k)
+    return elite + selected

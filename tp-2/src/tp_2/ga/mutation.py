@@ -1,61 +1,178 @@
-import random
 import copy
+import random
 from typing import List, Tuple
+
 from tp_2.ga.individual import Individual, Triangle
 
+_RANGES = [
+    (0.0, 1.0),    # x1
+    (0.0, 1.0),    # y1
+    (0.0, 1.0),    # x2
+    (0.0, 1.0),    # y2
+    (0.0, 1.0),    # x3
+    (0.0, 1.0),    # y3
+    (0.0, 360.0),  # H
+    (0.0, 100.0),  # S
+    (0.0, 100.0),  # L
+    (0.05, 1.0),   # A
+]
+_N_COMPONENTS = len(_RANGES)
+
+
+def _get_components(tri: Triangle) -> List[float]:
+    x1, y1 = tri.vertices[0]
+    x2, y2 = tri.vertices[1]
+    x3, y3 = tri.vertices[2]
+    h, s, l, a = tri.color
+    return [x1, y1, x2, y2, x3, y3, h, s, l, a]
+
+
+def _set_components(components: List[float]) -> Triangle:
+    x1, y1, x2, y2, x3, y3, h, s, l, a = components
+    # Clamp al rango válido de cada componente
+    clamped = [
+        max(lo, min(hi, v)) for v, (lo, hi) in zip(components, _RANGES)
+    ]
+    x1, y1, x2, y2, x3, y3, h, s, l, a = clamped
+    return Triangle(
+        vertices=[(x1, y1), (x2, y2), (x3, y3)],
+        color=(h % 360.0, s, l, a),
+    )
+
+
+def _perturb_gaussian(val: float, lo: float, hi: float, scale: float) -> float:
+    return max(lo, min(hi, val + random.gauss(0, (hi - lo) * scale)))
+
+
+def _perturb_uniform(lo: float, hi: float) -> float:
+    return random.uniform(lo, hi)
+
+
 class Mutation:
-    """Métodos de mutación para individuos y triángulos."""
 
     @staticmethod
-    def _mutate_component(val: float, min_val: float, max_val: float, delta_ratio: float = 0.1) -> float:
-        """Aplica un ruido gaussiano o uniforme a un componente escalar acotado."""
-        scale = (max_val - min_val) * delta_ratio
-        new_val = val + random.gauss(0, scale)
-        return max(min_val, min(max_val, new_val))
-
-    @classmethod
-    def mutate_triangle(cls, tri: Triangle, delta_ratio: float = 0.1) -> Triangle:
-        """Muta vértices y color de un triángulo."""
-        new_vertices = []
-        for x, y in tri.vertices:
-            nx = cls._mutate_component(x, 0.0, 1.0, delta_ratio)
-            ny = cls._mutate_component(y, 0.0, 1.0, delta_ratio)
-            new_vertices.append((nx, ny))
-
-        h, s, l, a = tri.color
-        nh = cls._mutate_component(h, 0.0, 360.0, delta_ratio)
-        ns = cls._mutate_component(s, 0.0, 100.0, delta_ratio)
-        nl = cls._mutate_component(l, 0.0, 100.0, delta_ratio)
-        na = cls._mutate_component(a, 0.0, 1.0, delta_ratio)
-
-        return Triangle(new_vertices, (nh, ns, nl, na))
-
-    @classmethod
-    def apply(cls, ind: Individual, p_mut: float, method: str, gen: int = 1, max_gen: int = 100) -> Individual:
-        """
-        Aplica mutación al individuo según el método especificado.
-        Non-uniform mutation: delta_ratio disminuye a medida que avanzan las generaciones.
-        """
+    def single_gene(
+        ind: Individual,
+        p_ind: float,
+        scale: float = 0.1,
+    ) -> Individual:
+        if random.random() > p_ind:
+            return ind
         new_ind = copy.deepcopy(ind)
-        # Factor no uniforme de ajuste fino (disminuye con las generaciones)
-        delta_ratio = max(0.01, 0.2 * (1.0 - (gen / max_gen)))
-
-        if random.random() > p_mut:
-            return new_ind
-
-        n = len(new_ind.triangles)
-
-        if method == "single_gene":
-            idx = random.randint(0, n - 1)
-            new_ind.triangles[idx] = cls.mutate_triangle(new_ind.triangles[idx], delta_ratio)
-
-        elif method in ("multigene_limited", "multigene_uniform"):
-            for i in range(n):
-                if random.random() < 0.2:  # 20% de probabilidad por triángulo
-                    new_ind.triangles[i] = cls.mutate_triangle(new_ind.triangles[i], delta_ratio)
-
-        elif method == "complete":
-            for i in range(n):
-                new_ind.triangles[i] = cls.mutate_triangle(new_ind.triangles[i], delta_ratio)
-
+        idx = random.randrange(len(new_ind.triangles))
+        comp = _get_components(new_ind.triangles[idx])
+        c = random.randrange(_N_COMPONENTS)
+        lo, hi = _RANGES[c]
+        comp[c] = _perturb_gaussian(comp[c], lo, hi, scale)
+        new_ind.triangles[idx] = _set_components(comp)
+        new_ind.fitness = None
         return new_ind
+
+    @staticmethod
+    def multigene(
+        ind: Individual,
+        p_ind: float,
+        k: int = 0,
+        p_comp: float = 0.2,
+        scale: float = 0.1,
+    ) -> Individual:
+        if random.random() > p_ind:
+            return ind
+        new_ind = copy.deepcopy(ind)
+        n = len(new_ind.triangles)
+        k_actual = k if k > 0 else max(1, -(-n // 4))   # ceil(N/4)
+        k_actual = min(k_actual, n)
+
+        indices = random.sample(range(n), k_actual)
+        for i in indices:
+            comp = _get_components(new_ind.triangles[i])
+            mutated = False
+            for c in range(_N_COMPONENTS):
+                if random.random() < p_comp:
+                    lo, hi = _RANGES[c]
+                    comp[c] = _perturb_gaussian(comp[c], lo, hi, scale)
+                    mutated = True
+            if mutated:
+                new_ind.triangles[i] = _set_components(comp)
+        new_ind.fitness = None
+        return new_ind
+    @staticmethod
+    def uniform(
+        ind: Individual,
+        p_ind: float,
+        p_tri: float = 0.2,
+        p_comp: float = 0.15,
+    ) -> Individual:
+        if random.random() > p_ind:
+            return ind
+        new_ind = copy.deepcopy(ind)
+        for i, tri in enumerate(new_ind.triangles):
+            if random.random() > p_tri:
+                continue
+            comp = _get_components(tri)
+            mutated = False
+            for c in range(_N_COMPONENTS):
+                if random.random() < p_comp:
+                    lo, hi = _RANGES[c]
+                    comp[c] = _perturb_uniform(lo, hi)
+                    mutated = True
+            if mutated:
+                new_ind.triangles[i] = _set_components(comp)
+        new_ind.fitness = None
+        return new_ind
+
+    @staticmethod
+    def non_uniform(
+        ind: Individual,
+        p_ind: float,
+        p_tri: float = 0.3,
+        p_comp: float = 0.2,
+        generation: int = 1,
+        max_generations: int = 1000,
+        min_scale: float = 0.005,
+        max_scale: float = 0.15,
+    ) -> Individual:
+        if random.random() > p_ind:
+            return ind
+        t = min(generation / max(max_generations, 1), 1.0)
+        scale = max_scale * (1.0 - t) + min_scale * t
+
+        new_ind = copy.deepcopy(ind)
+        for i, tri in enumerate(new_ind.triangles):
+            if random.random() > p_tri:
+                continue
+            comp = _get_components(tri)
+            mutated = False
+            for c in range(_N_COMPONENTS):
+                if random.random() < p_comp:
+                    lo, hi = _RANGES[c]
+                    comp[c] = _perturb_gaussian(comp[c], lo, hi, scale)
+                    mutated = True
+            if mutated:
+                new_ind.triangles[i] = _set_components(comp)
+        new_ind.fitness = None
+        return new_ind
+    @staticmethod
+    def apply(
+        ind: Individual,
+        p_ind: float,
+        method: str,
+        generation: int = 1,
+        max_generations: int = 1000,
+        p_tri: float = 0.3,
+        p_comp: float = 0.2,
+    ) -> Individual:
+        if method == "single_gene":
+            return Mutation.single_gene(ind, p_ind)
+        elif method == "multigene":
+            # k=0 → ceil(N/4) automático
+            return Mutation.multigene(ind, p_ind, p_comp=p_comp)
+        elif method == "uniform":
+            return Mutation.uniform(ind, p_ind, p_tri=p_tri, p_comp=p_comp)
+        elif method == "non_uniform":
+            return Mutation.non_uniform(
+                ind, p_ind, p_tri=p_tri, p_comp=p_comp,
+                generation=generation, max_generations=max_generations,
+            )
+        else:
+            return Mutation.multigene(ind, p_ind)
