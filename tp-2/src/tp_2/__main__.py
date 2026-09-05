@@ -21,16 +21,16 @@ def main() -> None:
   print("\n[OK] Configuration parsed and validated successfully.")
 
   # Soporte para la ruta de la imagen desde CLI o YAML
-  image_path = getattr(cfg, "image_path", getattr(cfg, "image", None))
+  image_path = cfg.get("image_path", cfg.get("image", None))
   if not image_path:
     image_path = "figures/germany-flag.png"
 
-  output_path = getattr(cfg, "output_path", "output.png")
+  output_path = cfg.get("output_path", "output.png")
 
   print(f"Cargando imagen: {image_path}")
 
   # Resolución para evaluación rápida en el loop evolutivo (por defecto 128px)
-  eval_size = getattr(cfg, "eval_size", 128)
+  eval_size = cfg.get("eval_size", 128)
 
   # Imagen en baja resolución para acelerar el cálculo de fitness
   target_img_eval = ImageUtils.load_target_image(

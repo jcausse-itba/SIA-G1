@@ -44,15 +44,15 @@ class GAEngine:
         elif method == "universal":
             return Selection.universal(population, k)
         elif method == "boltzmann":
-            t0    = getattr(self.cfg, "boltzmann_t0",    100.0)
-            decay = getattr(self.cfg, "boltzmann_decay",   0.005)
+            t0    = self.cfg.get("boltzmann_t0", 100.0)
+            decay = self.cfg.get("boltzmann_decay", self.cfg.get("boltzmann_k", 0.005))
             T     = t0 * math.exp(-decay * generation)
             return Selection.boltzmann(population, k, temperature=T)
         elif method in ("tournament_det", "det_tournament"):
-            m = getattr(self.cfg, "tournament_m", 3)
+            m = self.cfg.get("tournament_m", 3)
             return Selection.tournament_deterministic(population, k, m=m)
         elif method in ("tournament_prob", "prob_tournament"):
-            p = getattr(self.cfg, "tournament_threshold", 0.75)
+            p = self.cfg.get("tournament_threshold", 0.75)
             return Selection.tournament_probabilistic(population, k, threshold_p=p)
         elif method == "ranking":
             return Selection.ranking(population, k)
@@ -66,24 +66,24 @@ class GAEngine:
     def run(self) -> Individual:
         cfg = self.cfg
 
-        pop_size       = getattr(cfg, "pop_size",        50)
-        num_triangles  = getattr(cfg, "num_triangles",   30)
-        children_size  = getattr(cfg, "children_size",  pop_size)
-        crossover_prob = getattr(cfg, "crossover_prob",  0.8)
-        mutation_prob  = getattr(cfg, "mutation_prob",   0.1)   # p_ind
-        p_tri          = getattr(cfg, "p_tri",           0.3)
-        p_comp         = getattr(cfg, "p_comp",          0.2)
-        max_gen        = getattr(cfg, "max_generations", 1000)
-        output_path    = getattr(cfg, "output_path",     "output.png")
-        save_interval  = getattr(cfg, "save_interval",   10)
-        save_frames    = getattr(cfg, "save_frames",     True)
-        frames_dir     = getattr(cfg, "frames_dir",      "frames")
-        parent_method  = getattr(cfg, "parent_selection","roulette")
-        surv_strategy  = getattr(cfg, "survival_strategy","additive")
-        surv_method    = getattr(cfg, "survival_selection","elite")
-        cross_method   = getattr(cfg, "crossover",       "two_point")
-        mut_method     = getattr(cfg, "mutation",        "non_uniform")
-        elitism        = getattr(cfg, "elitism",          1)
+        pop_size       = cfg.get("pop_size",        50)
+        num_triangles  = cfg.get("num_triangles",   30)
+        children_size  = cfg.get("children_size",  pop_size)
+        crossover_prob = cfg.get("crossover_prob",  0.8)
+        mutation_prob  = cfg.get("mutation_prob",   0.1)   # p_ind
+        p_tri          = cfg.get("p_tri",           0.3)
+        p_comp         = cfg.get("p_comp",          0.2)
+        max_gen        = cfg.get("max_generations", 1000)
+        output_path    = cfg.get("output_path",     "output.png")
+        save_interval  = cfg.get("save_interval",   10)
+        save_frames    = cfg.get("save_frames",     True)
+        frames_dir     = cfg.get("frames_dir",      "frames")
+        parent_method  = cfg.get("parent_selection","roulette")
+        surv_strategy  = cfg.get("survival_strategy","additive")
+        surv_method    = cfg.get("survival_selection","elite")
+        cross_method   = cfg.get("crossover",       "two_point")
+        mut_method     = cfg.get("mutation",        "non_uniform")
+        elitism        = cfg.get("elitism",          1)
 
         if save_frames:
             Path(frames_dir).mkdir(parents=True, exist_ok=True)
@@ -192,7 +192,7 @@ class GAEngine:
                     )
 
         # 8. Métricas finales
-        metrics_dir = getattr(cfg, "metrics_dir", "metrics")
+        metrics_dir = cfg.get("metrics_dir", "metrics")
         label = (
             f"{cross_method}_{mut_method}_{parent_method}_{surv_strategy}"
         )
