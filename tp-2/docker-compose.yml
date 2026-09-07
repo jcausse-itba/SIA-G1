@@ -1,0 +1,17 @@
+services:
+  app:
+    build: .
+    working_dir: /app
+    volumes:
+      - ../:/app
+    cap_add:
+      - SYS_PTRACE
+    stdin_open: true
+    tty: true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

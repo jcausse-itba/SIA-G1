@@ -1,7 +1,183 @@
+use cust::prelude::*;
 use ndarray::Array3;
 use numpy::{IntoPyArray, PyArray3, PyReadonlyArray2};
 use pyo3::prelude::*;
 use rayon::prelude::*;
+use std::sync::Once;
+
+static FIRST_CALL: Once = Once::new();
+
+const CUDA_KERNEL_SRC: &str = r#"
+extern "C" __global__ void render_canvas_kernel(
+    const float* __restrict__ genomes,
+    float* __restrict__ canvases,
+    int num_individuals,
+    int num_genes,
+    int row_len,
+    int width,
+    int height
+) {
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    int ind = blockIdx.z;
+
+    if (x >= width || y >= height || ind >= num_individuals) return;
+
+    float px = (float)x + 0.5f;
+    float py = (float)y + 0.5f;
+
+    int num_verts = (row_len - 4) / 2;
+
+    float cur_l = 100.0f;
+    float cur_a = 0.0f;
+    float cur_b = 0.0f;
+
+    const float* genome = genomes + (size_t)ind * num_genes * row_len;
+
+    for (int g = 0; g < num_genes; ++g) {
+        const float* row = genome + g * row_len;
+        float alpha = row[2 * num_verts + 3];
+
+        if (alpha <= 0.0f) continue;
+
+        float min_x = (float)width;
+        float max_x = 0.0f;
+        float min_y = (float)height;
+        float max_y = 0.0f;
+
+        for (int v = 0; v < num_verts; ++v) {
+            float vx = row[2 * v] * (float)width;
+            float vy = row[2 * v + 1] * (float)height;
+            if (vx < min_x) min_x = vx;
+            if (vx > max_x) max_x = vx;
+            if (vy < min_y) min_y = vy;
+            if (vy > max_y) max_y = vy;
+        }
+
+        if (px < min_x || px > max_x || py < min_y || py > max_y) {
+            continue;
+        }
+
+        bool inside = false;
+        int j = num_verts - 1;
+        for (int i = 0; i < num_verts; ++i) {
+            float x1 = row[2 * j] * (float)width;
+            float y1 = row[2 * j + 1] * (float)height;
+            float x2 = row[2 * i] * (float)width;
+            float y2 = row[2 * i + 1] * (float)height;
+
+            if ((y1 <= py && y2 > py) || (y2 <= py && y1 > py)) {
+                float x_cross = x1 + (py - y1) / (y2 - y1) * (x2 - x1);
+                if (px < x_cross) {
+                    inside = !inside;
+                }
+            }
+            j = i;
+        }
+
+        if (inside) {
+            float h = row[2 * num_verts];
+            float c = row[2 * num_verts + 1];
+            float l = row[2 * num_verts + 2];
+
+            float rad = h * 0.017453292519943295f;
+            float src_l = l * alpha;
+            float src_a = (c * cosf(rad)) * alpha;
+            float src_b = (c * sinf(rad)) * alpha;
+            float one_minus_alpha = 1.0f - alpha;
+
+            cur_l = src_l + cur_l * one_minus_alpha;
+            cur_a = src_a + cur_a * one_minus_alpha;
+            cur_b = src_b + cur_b * one_minus_alpha;
+        }
+    }
+
+    size_t out_idx = ((size_t)ind * height * width + (size_t)y * width + (size_t)x) * 3;
+    canvases[out_idx] = cur_l;
+    canvases[out_idx + 1] = cur_a;
+    canvases[out_idx + 2] = cur_b;
+}
+"#;
+
+fn try_render_gpu(
+    py: Python,
+    genomes: &[PyReadonlyArray2<f32>],
+    width: usize,
+    height: usize,
+) -> Option<Vec<Array3<f32>>> {
+    let _ctx = cust::quick_init().ok()?;
+
+    let num_individuals = genomes.len();
+    if num_individuals == 0 {
+        return Some(Vec::new());
+    }
+
+    let first_genome = genomes[0].as_array();
+    let shape = first_genome.shape();
+    let num_genes = shape[0];
+    let row_len = shape[1];
+
+    let mut flat_genomes = Vec::with_capacity(num_individuals * num_genes * row_len);
+    for g in genomes {
+        let arr = g.as_array();
+        if arr.shape()[0] != num_genes || arr.shape()[1] != row_len {
+            return None;
+        }
+        if let Some(slice) = arr.as_slice() {
+            flat_genomes.extend_from_slice(slice);
+        } else {
+            flat_genomes.extend(arr.iter().copied());
+        }
+    }
+
+    let module = Module::from_ptx(CUDA_KERNEL_SRC, &[]).ok()?;    let stream = Stream::new(StreamFlags::NON_BLOCKING, None).ok()?;
+    let kernel = module.get_function("render_canvas_kernel").ok()?;
+
+    let d_genomes = DeviceBuffer::from_slice(&flat_genomes).ok()?;
+    let out_len = num_individuals * height * width * 3;
+    let mut d_canvases = unsafe { DeviceBuffer::<f32>::uninitialized(out_len) }.ok()?;
+
+    let block_x = 16u32;
+    let block_y = 16u32;
+    let grid_x = (width as u32 + block_x - 1) / block_x;
+    let grid_y = (height as u32 + block_y - 1) / block_y;
+    let grid_z = num_individuals as u32;
+
+    let grid = (grid_x, grid_y, grid_z);
+    let block = (block_x, block_y, 1u32);
+
+    py.allow_threads(|| unsafe {
+        launch!(
+            kernel<<<grid, block, 0, stream>>>(
+                d_genomes.as_device_ptr(),
+                d_canvases.as_device_ptr(),
+                num_individuals as i32,
+                num_genes as i32,
+                row_len as i32,
+                width as i32,
+                height as i32
+            )
+        )
+    })
+    .ok()?;
+
+    stream.synchronize().ok()?;
+
+    let mut host_canvases = vec![0.0f32; out_len];
+    d_canvases.copy_to(&mut host_canvases).ok()?;
+
+    let canvas_size = height * width * 3;
+    let mut results = Vec::with_capacity(num_individuals);
+    for i in 0..num_individuals {
+        let start = i * canvas_size;
+        let end = start + canvas_size;
+        let slice = host_canvases[start..end].to_vec();
+        let arr = Array3::from_shape_vec((height, width, 3), slice).ok()?;
+        results.push(arr);
+    }
+
+    Some(results)
+}
 
 #[inline(always)]
 fn hcl_to_lab(h: f32, c: f32, l: f32) -> (f32, f32, f32) {
@@ -17,6 +193,28 @@ fn render_individuals_rust<'py>(
     width: usize,
     height: usize,
 ) -> PyResult<Vec<Bound<'py, PyArray3<f32>>>> {
+    let population_count = genomes.len();
+    let poly_count = if population_count > 0 {
+        genomes[0].as_array().shape()[0]
+    } else {
+        0
+    };
+
+    let force_cpu = width <= 128;// && height <= 128 && (poly_count * population_count < 10000);
+
+    if !force_cpu {
+        if let Some(canvases) = try_render_gpu(py, &genomes, width, height) {
+            FIRST_CALL.call_once(|| {
+                println!("Running on GPU");
+            });
+            return Ok(canvases.into_iter().map(|c| c.into_pyarray(py)).collect());
+        }
+    }
+
+    FIRST_CALL.call_once(|| {
+        println!("Running on CPU");
+    });
+
     let views: Vec<_> = genomes.iter().map(|g| g.as_array()).collect();
 
     let canvases: Vec<Array3<f32>> = py.allow_threads(|| {

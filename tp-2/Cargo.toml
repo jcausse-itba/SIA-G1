@@ -13,3 +13,4 @@ pyo3 = { version = "0.25", features = ["extension-module"] }
 numpy = "0.25"
 ndarray = "0.16"
 rayon = "1.11"
+cust = "0.3.2"
