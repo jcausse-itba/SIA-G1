@@ -1,0 +1,24 @@
+# Stop after a wall-clock time budget
+image_path = "./figures/germany-flag.png"
+output_path = "./output/stop_criterion/time.png"
+num_triangles = 50
+pop_size = 100
+children_size = 60
+crossover_prob = 0.8
+mutation_prob = 0.05
+survival_strategy = "additive"
+generation_gap = 1.0
+parent_selection = "roulette"
+survival_selection = "elite"
+crossover = "two_point"
+mutation = "multigene_uniform"
+tournament_m = 3
+tournament_threshold = 0.75
+boltzmann_t0 = 100.0
+boltzmann_tc = 10.0
+boltzmann_k = 0.01
+stop_criterion = "time"
+max_generations = 100000
+target_fitness = 0.99
+stagnation_limit = 50
+max_time_seconds = 120.0

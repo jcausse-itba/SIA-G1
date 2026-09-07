@@ -230,3 +230,6 @@ __marimo__/
 
 #LibreOffice
 *.ods
+
+frames/
+output/

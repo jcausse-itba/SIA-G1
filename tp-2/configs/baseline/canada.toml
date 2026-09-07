@@ -1,0 +1,24 @@
+# Baseline run on canada-flag.png with all GA defaults from parser.py
+image_path = "./figures/canada-flag.png"
+output_path = "./output/baseline/canada.png"
+num_triangles = 50
+pop_size = 100
+children_size = 60
+crossover_prob = 0.8
+mutation_prob = 0.05
+survival_strategy = "additive"
+generation_gap = 1.0
+parent_selection = "roulette"
+survival_selection = "elite"
+crossover = "two_point"
+mutation = "multigene_uniform"
+tournament_m = 3
+tournament_threshold = 0.75
+boltzmann_t0 = 100.0
+boltzmann_tc = 10.0
+boltzmann_k = 0.01
+stop_criterion = "generations"
+max_generations = 1000
+target_fitness = 0.99
+stagnation_limit = 50
+max_time_seconds = 300.0

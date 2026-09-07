@@ -14,3 +14,8 @@ def validate_config(cfg: Dict[str, Any]) -> None:
         raise ValueError("Crossover probability must be between 0.0 and 1.0.")
     if not (0.0 <= cfg["mutation_prob"] <= 1.0):
         raise ValueError("Mutation probability must be between 0.0 and 1.0.")
+
+    # Asegurar que el directorio de salida existe
+    output_dir = os.path.dirname(cfg["output_path"])
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)

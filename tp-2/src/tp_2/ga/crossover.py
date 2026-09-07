@@ -1,6 +1,6 @@
 import random
-from typing import List, Tuple
-from tp_2.ga.individual import Individual, Triangle
+from typing import Tuple
+from tp_2.ga.individual import Individual
 
 class Crossover:
     """Métodos de cruza para el motor genético (a nivel de lista de triángulos)."""
