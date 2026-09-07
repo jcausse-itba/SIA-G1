@@ -1,37 +1,30 @@
-import random
-from dataclasses import dataclass
-from typing import List, Tuple, Optional
+import numpy as np
+from typing import Optional
 
-@dataclass
-class Triangle:
-    """
-    Representa un gen compuesto: 3 vértices normalizados y un color HCL.
-    """
-    vertices: List[Tuple[float, float]]
-    color: Tuple[float, float, float, float]
-
-    @classmethod
-    def random_init(cls) -> 'Triangle':
-        """Inicializa un triángulo completamente al azar."""
-        vertices = [(random.random(), random.random()) for _ in range(3)]
-        color = (
-            random.uniform(0.0, 360.0), # Hue
-            random.uniform(0.0, 130.0), # Chroma
-            random.uniform(0.0, 100.0), # Lightness
-            random.uniform(0.0, 1.0)    # Alpha
-        )
-        return cls(vertices, color)
-
-
-@dataclass
 class Individual:
     """
-    Representa a un individuo de la población (la lista de N triángulos).
+    Representa a un individuo de la población, vectorizado vía NumPy.
+    El genoma es una matriz (N, 10) donde N = número de triángulos.
+    Columnas: x1, y1, x2, y2, x3, y3, h, c, l, alpha
     """
-    triangles: List[Triangle]
-    fitness: Optional[float] = None  # Permite asignar None cuando el valor no fue evaluado
+    def __init__(self, genome: np.ndarray, fitness: Optional[float] = None):
+        self.genome = genome
+        self.fitness = fitness
 
     @classmethod
     def random_init(cls, num_triangles: int) -> 'Individual':
-        """Crea un individuo generando N triángulos al azar."""
-        return cls([Triangle.random_init() for _ in range(num_triangles)])
+        """Crea un individuo generando N triángulos al azar en un array NumPy contiguo."""
+        genome = np.empty((num_triangles, 10), dtype=np.float32)
+        genome[:, 0:6] = np.random.rand(num_triangles, 6)           # x1, y1, x2, y2, x3, y3
+        genome[:, 6] = np.random.uniform(0.0, 360.0, num_triangles) # Hue
+        genome[:, 7] = np.random.uniform(0.0, 130.0, num_triangles) # Chroma
+        genome[:, 8] = np.random.uniform(0.0, 100.0, num_triangles) # Lightness
+        genome[:, 9] = np.random.uniform(0.05, 1.0, num_triangles)  # Alpha
+        return cls(genome)
+
+    def __deepcopy__(self, memo=None) -> 'Individual':
+        """
+        Bypasses Python's slow deepcopy introspection logic.
+        Clones the contiguous memory block at native C-level speed.
+        """
+        return Individual(self.genome.copy(), self.fitness)

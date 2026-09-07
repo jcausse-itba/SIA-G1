@@ -47,12 +47,14 @@ def render_individual(individual: Individual, width: int, height: int) -> np.nda
     canvas_lab = np.zeros((height, width, 3), dtype=np.float32)
     canvas_lab[:, :, 0] = 100.0
 
-    for tri in individual.triangles:
-        x0, y0 = int(tri.vertices[0][0] * width), int(tri.vertices[0][1] * height)
-        x1, y1 = int(tri.vertices[1][0] * width), int(tri.vertices[1][1] * height)
-        x2, y2 = int(tri.vertices[2][0] * width), int(tri.vertices[2][1] * height)
+    for i in range(individual.genome.shape[0]):
+        gene = individual.genome[i]
+        
+        x0, y0 = int(gene[0] * width), int(gene[1] * height)
+        x1, y1 = int(gene[2] * width), int(gene[3] * height)
+        x2, y2 = int(gene[4] * width), int(gene[5] * height)
 
-        h, c, l, alpha = tri.color
+        h, c, l, alpha = gene[6], gene[7], gene[8], gene[9]
 
         l_val, a_val, b_val = hcl_to_lab(h, c, l)
 
