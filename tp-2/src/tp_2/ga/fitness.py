@@ -12,7 +12,6 @@ class FitnessEvaluator:
         """
         self.eval_scale = eval_scale
         
-        # Redimensionar la imagen target si eval_scale < 1.0
         if eval_scale != 1.0:
             h, w = target_rgb_img.shape[:2]
             new_w = max(1, int(w * eval_scale))
@@ -22,14 +21,11 @@ class FitnessEvaluator:
         self.height, self.width = target_rgb_img.shape[:2]
         rgb_only = target_rgb_img[:, :, :3]
 
-        # Target precalculado en CIELAB a la resolución ajustada
         self.target_lab = rgb_to_lab_vectorized(rgb_only)
     
     def evaluate(self, individual: Individual) -> float:
-        # Renderizado ultrarrápido con Numba + Blending RGB exacto
         rendered_lab = render_individual(individual, self.width, self.height)
 
-        # Distancia Euclídea promedio por píxel en CIELAB
         delta_e = np.linalg.norm(self.target_lab - rendered_lab, axis=-1)
         mean_delta_e = np.mean(delta_e)
         fitness = 10000.0 / (1.0 + mean_delta_e)
