@@ -1,17 +1,13 @@
 import random
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 @dataclass
 class Triangle:
     """
-    Representa un gen compuesto: 3 vértices normalizados y un color HSLuv.
+    Representa un gen compuesto: 3 vértices normalizados y un color HCL.
     """
-    # Vértices: [(x1,y1), (x2,y2), (x3,y3)] normalizados en [0.0, 1.0]
     vertices: List[Tuple[float, float]]
-    
-    # Color HSLuv+Alpha: (H, S, L, A) 
-    # Rangos: H[0,360], S[0,100], L[0,100], A[0.0, 1.0]
     color: Tuple[float, float, float, float]
 
     @classmethod
@@ -20,9 +16,9 @@ class Triangle:
         vertices = [(random.random(), random.random()) for _ in range(3)]
         color = (
             random.uniform(0.0, 360.0), # Hue
-            random.uniform(0.0, 100.0), # Saturation
+            random.uniform(0.0, 130.0), # Chroma
             random.uniform(0.0, 100.0), # Lightness
-            random.uniform(0.0, 1.0)    # Alpha (Translucidez)
+            random.uniform(0.0, 1.0)    # Alpha
         )
         return cls(vertices, color)
 
@@ -33,7 +29,7 @@ class Individual:
     Representa a un individuo de la población (la lista de N triángulos).
     """
     triangles: List[Triangle]
-    fitness: float = None # Se calcula y asigna en la fase de evaluación
+    fitness: Optional[float] = None  # Permite asignar None cuando el valor no fue evaluado
 
     @classmethod
     def random_init(cls, num_triangles: int) -> 'Individual':

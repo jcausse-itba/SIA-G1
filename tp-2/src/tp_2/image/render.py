@@ -1,13 +1,14 @@
 import numpy as np
+import warnings
 from numba import njit
-from PIL import Image, ImageDraw
+from skimage.color import lab2rgb
 from tp_2.ga.individual import Individual
-from tp_2.ga.color import hcl_to_rgb_float_numba, hcl_to_rgba_int, rgb_to_lab_vectorized
+from tp_2.ga.color import hcl_to_lab
 
 @njit(fastmath=True)
-def draw_triangle_rgb_numba(canvas_rgb: np.ndarray, x0: int, y0: int, x1: int, y1: int, x2: int, y2: int, tri_rgb: np.ndarray, alpha: float):
-    """Rasteriza y realiza alpha blending en espacio sRGB correcto."""
-    height, width, _ = canvas_rgb.shape
+def draw_triangle_lab_numba(canvas_lab: np.ndarray, x0: int, y0: int, x1: int, y1: int, x2: int, y2: int, tri_lab: np.ndarray):
+    """Rasteriza escribiendo valores CIELAB directamente sobre el canvas."""
+    height, width, _ = canvas_lab.shape
 
     min_x = max(0, min(x0, x1, x2))
     max_x = min(width - 1, max(x0, x1, x2))
@@ -27,39 +28,37 @@ def draw_triangle_rgb_numba(canvas_rgb: np.ndarray, x0: int, y0: int, x1: int, y
             w2 = 1.0 - w0 - w1
 
             if w0 >= 0 and w1 >= 0 and w2 >= 0:
-                # Alpha blending exacto en RGB
-                canvas_rgb[y, x, 0] = canvas_rgb[y, x, 0] * (1.0 - alpha) + tri_rgb[0] * alpha
-                canvas_rgb[y, x, 1] = canvas_rgb[y, x, 1] * (1.0 - alpha) + tri_rgb[1] * alpha
-                canvas_rgb[y, x, 2] = canvas_rgb[y, x, 2] * (1.0 - alpha) + tri_rgb[2] * alpha
+                # Asignación directa en espacio CIELAB
+                canvas_lab[y, x, 0] = tri_lab[0]
+                canvas_lab[y, x, 1] = tri_lab[1]
+                canvas_lab[y, x, 2] = tri_lab[2]
 
 
-def render_individual_lab_fast(individual: Individual, width: int, height: int) -> np.ndarray:
-    canvas_rgb = np.ones((height, width, 3), dtype=np.float32)
+def render_individual(individual: Individual, width: int, height: int) -> np.ndarray:
+    # Canvas blanco inicializado directamente en CIELAB (L*=100, a*=0, b*=0)
+    canvas_lab = np.zeros((height, width, 3), dtype=np.float32)
+    canvas_lab[:, :, 0] = 100.0  # L*
 
     for tri in individual.triangles:
         x0, y0 = int(tri.vertices[0][0] * width), int(tri.vertices[0][1] * height)
         x1, y1 = int(tri.vertices[1][0] * width), int(tri.vertices[1][1] * height)
         x2, y2 = int(tri.vertices[2][0] * width), int(tri.vertices[2][1] * height)
 
-        h, c, l, alpha = tri.color
-        tri_rgb = hcl_to_rgb_float_numba(h, c, l)
+        h, c, l, _ = tri.color
+        tri_lab = hcl_to_lab(h, c, l)
 
-        draw_triangle_rgb_numba(canvas_rgb, x0, y0, x1, y1, x2, y2, tri_rgb, float(alpha))
+        draw_triangle_lab_numba(canvas_lab, x0, y0, x1, y1, x2, y2, tri_lab)
 
-    return rgb_to_lab_vectorized(canvas_rgb * 255.0)
+    return canvas_lab
 
+def render_to_image(individual: Individual, width: int, height: int) -> np.ndarray:
+    # 1. Renderizado directo en espacio CIELAB
+    rendered_lab = render_individual(individual, width, height)
 
-def render_individual(individual: Individual, width: int, height: int) -> np.ndarray:
-    """Renderiza en Pillow solo para guardar los frames en disco."""
-    canvas = Image.new('RGBA', (width, height), (255, 255, 255, 255))
-    draw = ImageDraw.Draw(canvas, 'RGBA')
+    # 2. Conversión a sRGB [0.0, 1.0] silenciando los warnings de clipping de gamut
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=UserWarning)
+        rendered_rgb = lab2rgb(rendered_lab)
 
-    for tri in individual.triangles:
-        scaled_vertices = [
-            (int(x * width), int(y * height)) 
-            for x, y in tri.vertices
-        ]
-        rgba = hcl_to_rgba_int(*tri.color)
-        draw.polygon(scaled_vertices, fill=rgba)
-
-    return np.array(canvas.convert('RGB'))
+    # 3. Escalar a uint8 [0, 255] para Pillow
+    return (np.clip(rendered_rgb, 0.0, 1.0) * 255.0).astype(np.uint8)

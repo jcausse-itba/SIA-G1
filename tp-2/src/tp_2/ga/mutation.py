@@ -12,7 +12,7 @@ _RANGES = [
     (0.0, 1.0),    # x3
     (0.0, 1.0),    # y3
     (0.0, 360.0),  # H
-    (0.0, 100.0),  # S
+    (0.0, 130.0),  # C
     (0.0, 100.0),  # L
     (0.05, 1.0),   # A
 ]
@@ -29,14 +29,18 @@ def _get_components(tri: Triangle) -> List[float]:
 
 def _set_components(components: List[float]) -> Triangle:
     x1, y1, x2, y2, x3, y3, h, s, l, a = components
-    # Clamp al rango válido de cada componente
+    h = h % 360.0
+    
     clamped = [
-        max(lo, min(hi, v)) for v, (lo, hi) in zip(components, _RANGES)
+        max(lo, min(hi, v)) for v, (lo, hi) in zip(components[7:], _RANGES[7:])
     ]
-    x1, y1, x2, y2, x3, y3, h, s, l, a = clamped
+    s, l, a = clamped
+    
+    v_clamped = [max(0.0, min(1.0, v)) for v in [x1, y1, x2, y2, x3, y3]]
+    
     return Triangle(
-        vertices=[(x1, y1), (x2, y2), (x3, y3)],
-        color=(h % 360.0, s, l, a),
+        vertices=[(v_clamped[0], v_clamped[1]), (v_clamped[2], v_clamped[3]), (v_clamped[4], v_clamped[5])],
+        color=(h, s, l, a),
     )
 
 

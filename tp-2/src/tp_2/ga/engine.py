@@ -13,7 +13,7 @@ from tp_2.ga.mutation import Mutation
 from tp_2.ga.selection import Selection
 from tp_2.ga.stopping import StoppingCriteria
 from tp_2.ga.survival import Survival
-from tp_2.image.render import render_individual
+from tp_2.image.render import render_to_image
 from tp_2.image.utils import ImageUtils
 from tp_2.metrics.plotting import plot_fitness_curve, plot_diversity, save_metrics_csv
 
@@ -94,21 +94,24 @@ class GAEngine:
         for ind in population:
             self.evaluator.evaluate(ind)
 
-        best = max(population, key=lambda x: x.fitness)
+        # Copia profunda del mejor inicial
+        best_candidate = max(population, key=lambda x: x.fitness if x.fitness is not None else -float("inf"))
+        best = copy.deepcopy(best_candidate)
         generation = 0
 
         print(f"\n--- Evolución | pop={pop_size} | triángulos={num_triangles} ---")
         print(f"    cruza={cross_method} | mutación={mut_method}")
         print(f"    selección_padres={parent_method} | supervivencia={surv_strategy}/{surv_method}")
 
-        # Render inicial
-        rendered = render_individual(best, self.evaluator.width, self.evaluator.height)
+        # Render inicial con conversión CIELAB -> RGB uint8
+        rendered = render_to_image(best, self.evaluator.width, self.evaluator.height)
         ImageUtils.save_image(rendered, output_path)
 
         while True:
             generation += 1
 
-            stop, reason = self.stopping.should_stop(generation, best.fitness)
+            best_fitness = best.fitness if best.fitness is not None else 0.0
+            stop, reason = self.stopping.should_stop(generation, best_fitness)
             if stop:
                 print(f"\n[FIN] Generación {generation}: {reason}")
                 break
@@ -118,20 +121,26 @@ class GAEngine:
 
             # 3. Cruza
             children: List[Individual] = []
-            for i in range(0, len(parents) - 1, 2):
-                p1, p2 = parents[i], parents[i + 1]
-                if random.random() < crossover_prob:
-                    if cross_method == "one_point":
-                        c1, c2 = Crossover.one_point(p1, p2)
-                    elif cross_method == "uniform":
-                        c1, c2 = Crossover.uniform(p1, p2)
-                    elif cross_method == "annular":
-                        c1, c2 = Crossover.annular(p1, p2)
-                    else:  # two_point (default)
-                        c1, c2 = Crossover.two_point(p1, p2)
+            for i in range(0, len(parents), 2):
+                if i + 1 < len(parents):
+                    p1, p2 = parents[i], parents[i + 1]
+                    if random.random() < crossover_prob:
+                        if cross_method == "one_point":
+                            c1, c2 = Crossover.one_point(p1, p2)
+                        elif cross_method == "uniform":
+                            c1, c2 = Crossover.uniform(p1, p2)
+                        elif cross_method == "annular":
+                            c1, c2 = Crossover.annular(p1, p2)
+                        else:
+                            c1, c2 = Crossover.two_point(p1, p2)
+                    else:
+                        c1, c2 = copy.deepcopy(p1), copy.deepcopy(p2)
+                    children.extend([c1, c2])
                 else:
-                    c1, c2 = copy.deepcopy(p1), copy.deepcopy(p2)
-                children.extend([c1, c2])
+                    # Parent sin pareja
+                    children.append(copy.deepcopy(parents[i]))
+
+            children = children[:children_size]
 
             # 4. Mutación jerárquica
             for i, child in enumerate(children):
@@ -156,15 +165,20 @@ class GAEngine:
             )
 
             # 6. Métricas
-            fits = [ind.fitness for ind in population]
-            gen_best = max(population, key=lambda x: x.fitness)
-            improved = gen_best.fitness > best.fitness
+            fits: List[float] = [ind.fitness for ind in population if ind.fitness is not None]
+            
+            gen_best = max(population, key=lambda x: x.fitness if x.fitness is not None else -float("inf"))
+            
+            gen_best_fit = gen_best.fitness if gen_best.fitness is not None else -float("inf")
+            current_best_fit = best.fitness if best.fitness is not None else -float("inf")
+            
+            improved = gen_best_fit > current_best_fit
             if improved:
-                best = gen_best
+                best = copy.deepcopy(gen_best)  # Copia aislada para evitar mutaciones in-place posteriores
 
             self.history.append({
                 "generation":  generation,
-                "best":        best.fitness,
+                "best":        best.fitness if best.fitness is not None else 0.0,
                 "mean":        float(np.mean(fits)),
                 "std":         float(np.std(fits)),
                 "worst":       float(np.min(fits)),
@@ -180,7 +194,7 @@ class GAEngine:
                     f"std={self.history[-1]['std']:.4f}"
                     f"{tag}"
                 )
-                rendered = render_individual(
+                rendered = render_to_image(
                     best, self.evaluator.width, self.evaluator.height
                 )
                 ImageUtils.save_image(rendered, output_path)
@@ -190,7 +204,11 @@ class GAEngine:
                         str(Path(frames_dir) / f"gen_{generation:05d}.png")
                     )
 
-        # 8. Métricas finales
+        # 8. Guardado del resultado final con el 'best' aislado
+        final_rendered = render_to_image(best, self.evaluator.width, self.evaluator.height)
+        ImageUtils.save_image(final_rendered, output_path)
+
+        # 9. Métricas finales
         metrics_dir = cfg.get("metrics_dir", "metrics")
         label = (
             f"{cross_method}_{mut_method}_{parent_method}_{surv_strategy}"
