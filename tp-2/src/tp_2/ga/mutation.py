@@ -1,3 +1,7 @@
+
+
+
+
 import copy
 import math
 import random
@@ -11,11 +15,11 @@ _RANGES_DIFF = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 360.0, 130.0, 100.0, 0.95
 
 def _clip_genome(genome: np.ndarray):
     """Restringe los valores in-place de la matriz NumPy completa según los límites de cada componente."""
-    genome[:, 0:6] = np.clip(genome[:, 0:6], 0.0, 1.0)
-    genome[:, 6] = genome[:, 6] % 360.0
-    genome[:, 7] = np.clip(genome[:, 7], 0.0, 130.0)
-    genome[:, 8] = np.clip(genome[:, 8], 0.0, 100.0)
-    genome[:, 9] = np.clip(genome[:, 9], 0.05, 1.0)
+    np.clip(genome[:, 0:6], 0.0, 1.0, out=genome[:, 0:6])
+    np.mod(genome[:, 6], 360.0, out=genome[:, 6])
+    np.clip(genome[:, 7], 0.0, 130.0, out=genome[:, 7])
+    np.clip(genome[:, 8], 0.0, 100.0, out=genome[:, 8])
+    np.clip(genome[:, 9], 0.05, 1.0, out=genome[:, 9])
 
 class Mutation:
 
@@ -25,14 +29,13 @@ class Mutation:
     ) -> Individual:
         if random.random() > p_ind:
             return ind
-        new_ind = copy.deepcopy(ind)
+        new_ind = Individual(ind.genome.copy())
         n = new_ind.genome.shape[0]
         idx = random.randrange(n)
         c = random.randrange(10)
         
         new_ind.genome[idx, c] += random.gauss(0, _RANGES_DIFF[c] * scale)
         _clip_genome(new_ind.genome)
-        new_ind.fitness = None
         return new_ind
 
     @staticmethod
@@ -41,7 +44,7 @@ class Mutation:
     ) -> Individual:
         if random.random() > p_ind:
             return ind
-        new_ind = copy.deepcopy(ind)
+        new_ind = Individual(ind.genome.copy())
         n = new_ind.genome.shape[0]
         k_actual = min(k if k > 0 else max(1, -(-n // 4)), n)
 
@@ -50,13 +53,14 @@ class Mutation:
         tri_mask[indices] = True
         
         comp_mask = np.random.rand(n, 10) < p_comp
-        noise = np.random.normal(0, scale * _RANGES_DIFF, size=(n, 10))
-        
         final_mask = tri_mask[:, None] & comp_mask
-        new_ind.genome = np.where(final_mask, new_ind.genome + noise, new_ind.genome)
+        
+        if np.any(final_mask):
+            cols = np.where(final_mask)[1]
+            scales = scale * _RANGES_DIFF[cols]
+            new_ind.genome[final_mask] += np.random.normal(0, scales)
         
         _clip_genome(new_ind.genome)
-        new_ind.fitness = None
         return new_ind
 
     @staticmethod
@@ -65,23 +69,30 @@ class Mutation:
     ) -> Individual:
         if random.random() > p_ind:
             return ind
-        new_ind = copy.deepcopy(ind)
+        new_ind = Individual(ind.genome.copy())
         n = new_ind.genome.shape[0]
         
         tri_mask = np.random.rand(n) < p_tri
         comp_mask = np.random.rand(n, 10) < p_comp
         final_mask = tri_mask[:, None] & comp_mask
         
-        random_genome = np.empty((n, 10), dtype=np.float32)
-        random_genome[:, 0:6] = np.random.rand(n, 6)
-        random_genome[:, 6] = np.random.uniform(0.0, 360.0, n)
-        random_genome[:, 7] = np.random.uniform(0.0, 130.0, n)
-        random_genome[:, 8] = np.random.uniform(0.0, 100.0, n)
-        random_genome[:, 9] = np.random.uniform(0.05, 1.0, n)
+        if np.any(final_mask):
+            for c in range(10):
+                col_mask = final_mask[:, c]
+                n_mut = np.count_nonzero(col_mask)
+                if n_mut > 0:
+                    if c < 6:
+                        new_ind.genome[col_mask, c] = np.random.rand(n_mut)
+                    elif c == 6:
+                        new_ind.genome[col_mask, c] = np.random.uniform(0.0, 360.0, n_mut)
+                    elif c == 7:
+                        new_ind.genome[col_mask, c] = np.random.uniform(0.0, 130.0, n_mut)
+                    elif c == 8:
+                        new_ind.genome[col_mask, c] = np.random.uniform(0.0, 100.0, n_mut)
+                    elif c == 9:
+                        new_ind.genome[col_mask, c] = np.random.uniform(0.05, 1.0, n_mut)
         
-        new_ind.genome = np.where(final_mask, random_genome, new_ind.genome)
         _clip_genome(new_ind.genome)
-        new_ind.fitness = None
         return new_ind
 
     @staticmethod
@@ -95,20 +106,20 @@ class Mutation:
         t = min(generation / max(max_generations, 1), 1.0)
         scale = max_scale * (1.0 - t) + min_scale * t
 
-        new_ind = copy.deepcopy(ind)
+        new_ind = Individual(ind.genome.copy())
         n = new_ind.genome.shape[0]
         
         tri_mask = np.random.rand(n) < p_tri
         comp_mask = np.random.rand(n, 10) < p_comp
-        noise = np.random.normal(0, scale * _RANGES_DIFF, size=(n, 10))
-        
         final_mask = tri_mask[:, None] & comp_mask
-        new_ind.genome = np.where(final_mask, new_ind.genome + noise, new_ind.genome)
+        
+        if np.any(final_mask):
+            cols = np.where(final_mask)[1]
+            scales = scale * _RANGES_DIFF[cols]
+            new_ind.genome[final_mask] += np.random.normal(0, scales)
         
         _clip_genome(new_ind.genome)
-        new_ind.fitness = None
         return new_ind
-
     @staticmethod
     def llm_de_non_linear_differential(
         ind: Individual, p_ind: float, p_tri: float = 0.3, p_comp: float = 0.2,
@@ -116,25 +127,26 @@ class Mutation:
     ) -> Individual:
         if random.random() > p_ind:
             return ind
+            
         t = min(generation / max(max_generations, 1), 1.0)
-        # Factor de escala no lineal F con modulación sinusoidal y decaimiento cuadrático
         f_scale = f_base * (1.0 - t**2) * (0.8 + 0.2 * math.cos(math.pi * t))
 
-        new_ind = copy.deepcopy(ind)
+        new_ind = Individual(ind.genome.copy())
         n = new_ind.genome.shape[0]
         
         tri_mask = np.random.rand(n) < p_tri
         comp_mask = np.random.rand(n, 10) < p_comp
-
-        r1_idx = np.random.randint(0, n, size=n)
-        r2_idx = np.random.randint(0, n, size=n)
-        diff = ind.genome[r1_idx] - ind.genome[r2_idx]
-        
-        noise = np.random.normal(0, 0.02 * (1.0 - t) * _RANGES_DIFF, size=(n, 10))
-        delta = f_scale * diff + noise
-        
         final_mask = tri_mask[:, None] & comp_mask
-        new_ind.genome = np.where(final_mask, new_ind.genome + delta, new_ind.genome)
+
+        if np.any(final_mask):
+            rows, cols = np.where(final_mask)
+            r1_idx = np.random.randint(0, n, size=n)
+            r2_idx = np.random.randint(0, n, size=n)
+            
+            diff = ind.genome[r1_idx[rows], cols] - ind.genome[r2_idx[rows], cols]
+            noise = np.random.normal(0, 0.02 * (1.0 - t) * _RANGES_DIFF[cols])
+            
+            new_ind.genome[final_mask] += f_scale * diff + noise
 
         _clip_genome(new_ind.genome)
         new_ind.fitness = None
@@ -149,24 +161,24 @@ class Mutation:
         if random.random() > p_ind:
             return ind
         t = min(generation / max(max_generations, 1), 1.0)
-        # Adaptación no lineal del radio del vecindario
         radius = initial_radius * ((1.0 - t) ** alpha) + 0.005
 
-        new_ind = copy.deepcopy(ind)
+        new_ind = Individual(ind.genome.copy())
         n = new_ind.genome.shape[0]
         
         tri_mask = np.random.rand(n) < p_tri
         comp_mask = np.random.rand(n, 10) < p_comp
-        
-        scale = radius * _RANGES_DIFF
-        u = np.random.rand(n, 10) - 0.5
-        step = np.tan(np.pi * u * 0.45) * scale
-        
         final_mask = tri_mask[:, None] & comp_mask
-        new_ind.genome = np.where(final_mask, new_ind.genome + step, new_ind.genome)
+        
+        if np.any(final_mask):
+            cols = np.where(final_mask)[1]
+            num_mut = len(cols)
+            scales = radius * _RANGES_DIFF[cols]
+            u = np.random.rand(num_mut) - 0.5
+            step = np.tan(np.pi * u * 0.45) * scales
+            new_ind.genome[final_mask] += step
 
         _clip_genome(new_ind.genome)
-        new_ind.fitness = None
         return new_ind
 
     @staticmethod
@@ -180,18 +192,19 @@ class Mutation:
         t = min(generation / max(max_generations, 1), 1.0)
         scale = max_scale * (1.0 - t) + min_scale * t
 
-        new_ind = copy.deepcopy(ind)
+        new_ind = Individual(ind.genome.copy())
         n = new_ind.genome.shape[0]
 
         tri_mask = np.random.rand(n) < p_tri
         comp_mask = np.random.rand(n, 10) < p_comp
-        noise = np.random.normal(0, scale * _RANGES_DIFF, size=(n, 10))
-
         final_mask = tri_mask[:, None] & comp_mask
-        new_ind.genome = np.where(final_mask, new_ind.genome + noise, new_ind.genome)
+
+        if np.any(final_mask):
+            cols = np.where(final_mask)[1]
+            scales = scale * _RANGES_DIFF[cols]
+            new_ind.genome[final_mask] += np.random.normal(0, scales)
 
         _clip_genome(new_ind.genome)
-        new_ind.fitness = None
         return new_ind
 
     @staticmethod
