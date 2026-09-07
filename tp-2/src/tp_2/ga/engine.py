@@ -95,8 +95,7 @@ class GAEngine:
         population = [
             Individual.random_init(num_triangles) for _ in range(pop_size)
         ]
-        for ind in population:
-            self.evaluator.evaluate(ind)
+        self.evaluator.evaluate(population)
 
         # Copia profunda del mejor inicial
         best_candidate = max(population, key=lambda x: x.fitness if x.fitness is not None else -float("inf"))
@@ -159,7 +158,7 @@ class GAEngine:
                     p_tri=p_tri,
                     p_comp=p_comp,
                 )
-                self.evaluator.evaluate(children[i])
+            self.evaluator.evaluate(children)
 
             # 5. Supervivencia
             def surv_selector(pool, k):

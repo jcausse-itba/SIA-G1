@@ -1,3 +1,4 @@
+from typing import List
 import numpy as np
 import cv2
 from tp_2.ga.individual import Individual
@@ -23,12 +24,15 @@ class FitnessEvaluator:
 
         self.target_lab = rgb_to_lab_vectorized(rgb_only)
     
-    def evaluate(self, individual: Individual) -> float:
-        rendered_lab = render_individual(individual, self.width, self.height)
+    def evaluate(self, population: List[Individual]) -> List[float]:
+        fitnesses = []
+        for individual in population:
+            rendered_lab = render_individual(individual, self.width, self.height)
 
-        delta_e = np.linalg.norm(self.target_lab - rendered_lab, axis=-1)
-        mean_delta_e = np.mean(delta_e)
-        fitness = 10000.0 / (1.0 + mean_delta_e)
+            delta_e = np.linalg.norm(self.target_lab - rendered_lab, axis=-1)
+            mean_delta_e = np.mean(delta_e)
+            fitness = 10000.0 / (1.0 + mean_delta_e)
 
-        individual.fitness = fitness
-        return fitness
+            individual.fitness = fitness
+            fitnesses.append(fitness)
+        return fitnesses
