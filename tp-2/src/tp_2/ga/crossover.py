@@ -1,4 +1,5 @@
 import random
+import math
 from typing import Tuple
 from tp_2.ga.individual import Individual
 
