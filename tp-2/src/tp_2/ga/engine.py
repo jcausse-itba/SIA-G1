@@ -78,7 +78,7 @@ class GAEngine:
         p_comp         = cfg.get("p_comp",          0.2)
         max_gen        = cfg.get("max_generations", 1000)
         output_path    = cfg.get("output_path",     "output.png")
-        save_interval  = cfg.get("save_interval",   10)
+        save_interval  = cfg.get("save_interval",   100)
         save_frames    = cfg.get("save_frames",     True)
         frames_dir     = cfg.get("frames_dir",      "frames")
         parent_method  = cfg.get("parent_selection","roulette")
