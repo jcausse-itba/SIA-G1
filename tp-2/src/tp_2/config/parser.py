@@ -26,16 +26,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     methods = parser.add_argument_group("Genetic Strategies")
     methods.add_argument("--parent-selection", type=str, default="roulette",
-                         choices=["elite", "roulette", "universal", "boltzmann", "det_tournament", "prob_tournament", "ranking"],
+                         choices=["elite", "roulette", "universal", "boltzmann", "det_tournament", "prob_tournament", "ranking", "funsearch_priority", "eoh_routing"],
                          help="Parent selection method")
     methods.add_argument("--survival-selection", type=str, default="elite",
-                         choices=["elite", "roulette", "universal", "boltzmann", "det_tournament", "prob_tournament", "ranking"],
+                         choices=["elite", "roulette", "universal", "boltzmann", "det_tournament", "prob_tournament", "ranking", "funsearch_priority", "eoh_routing"],
                          help="Survival selection method")
     # TODO remove the ones we don't want
     methods.add_argument("--crossover", type=str, default="two_point",
                          choices=["one_point", "two_point", "uniform", "annular"], help="Crossover method")
     methods.add_argument("--mutation", type=str, default="multigene_uniform",
-                         choices=["single_gene", "multigene_limited", "multigene_uniform", "complete"], help="Mutation method")
+                         choices=["single_gene", "multigene_limited", "multigene_uniform", "complete", "reevo_adaptive_neighborhood", "llm_de_non_linear_differential"], help="Mutation method")
 
     params = parser.add_argument_group("Method Specific Parameters")
     params.add_argument("--tournament-m", type=int, default=3, help="Group size M for deterministic tournaments")

@@ -55,6 +55,10 @@ class GAEngine:
             return Selection.tournament_probabilistic(population, k, threshold_p=p)
         elif method == "ranking":
             return Selection.ranking(population, k)
+        elif method == "funsearch_priority":
+            return Selection.funsearch_priority(population, k)
+        elif method == "eoh_routing":
+            return Selection.eoh_routing(population, k)
         else:
             print(f"[WARN] Método de selección desconocido: {method!r}. Usando roulette.")
             return Selection.roulette(population, k)

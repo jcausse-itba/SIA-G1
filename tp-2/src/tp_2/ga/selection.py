@@ -109,3 +109,49 @@ class Selection:
             idx = np.searchsorted(cum_probs, r)
             selected.append(sorted_pop[min(idx, n - 1)])
         return selected
+
+    @staticmethod
+    def funsearch_priority(population: List[Individual], k: int, temperature: float = 1.0, length_penalty_weight: float = 0.0) -> List[Individual]:
+        """Selección por Prioridad de FunSearch: combina fitness escalado por temperatura con penalización opcional por longitud."""
+
+        max_fit = max(ind.fitness for ind in population)
+        priorities = []
+        for ind in population:
+            fit_score = math.exp((ind.fitness - max_fit) / temperature)
+            length_penalty = 1.0
+            if length_penalty_weight > 0:
+                length = getattr(ind, 'length', len(ind) if hasattr(ind, '__len__') else 0)
+                length_penalty = 1.0 / (1.0 + length_penalty_weight * length)
+            priorities.append(fit_score * length_penalty)
+
+        total_priority = sum(priorities)
+        if total_priority == 0:
+            return random.choices(population, k=k)
+
+        probs = [p / total_priority for p in priorities]
+        cum_probs = np.cumsum(probs)
+
+        selected = []
+        for _ in range(k):
+            r = random.random()
+            idx = np.searchsorted(cum_probs, r)
+            selected.append(population[min(idx, len(population) - 1)])
+        return selected
+
+    @staticmethod
+    def eoh_routing(population: List[Individual], k: int, elite_ratio: float = 0.2, routing_prob: float = 0.8) -> List[Individual]:
+        """Selección por Enrutamiento de EoH (Evolution of Heuristics): enruta la selección equilibrando la elite y la exploración general."""
+        sorted_pop = sorted(population, key=lambda ind: ind.fitness, reverse=True)
+        n = len(sorted_pop)
+        num_elite = max(1, int(n * elite_ratio))
+
+        elites = sorted_pop[:num_elite]
+        others = sorted_pop[num_elite:] if num_elite < n else sorted_pop
+
+        selected = []
+        for _ in range(k):
+            if random.random() < routing_prob:
+                selected.append(random.choice(elites))
+            else:
+                selected.append(random.choice(others))
+        return selected

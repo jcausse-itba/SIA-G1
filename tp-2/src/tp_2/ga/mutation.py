@@ -1,4 +1,5 @@
 import copy
+import math
 import random
 from typing import List, Tuple
 
@@ -156,6 +157,89 @@ class Mutation:
                 new_ind.triangles[i] = _set_components(comp)
         new_ind.fitness = None
         return new_ind
+
+    @staticmethod
+    def llm_de_non_linear_differential(
+        ind: Individual,
+        p_ind: float,
+        p_tri: float = 0.3,
+        p_comp: float = 0.2,
+        generation: int = 1,
+        max_generations: int = 1000,
+        f_base: float = 0.5,
+    ) -> Individual:
+        if random.random() > p_ind:
+            return ind
+        t = min(generation / max(max_generations, 1), 1.0)
+        # Factor de escala no lineal F con modulación sinusoidal y decaimiento cuadrático
+        f_scale = f_base * (1.0 - t**2) * (0.8 + 0.2 * math.cos(math.pi * t))
+
+        new_ind = copy.deepcopy(ind)
+        n_triangles = len(new_ind.triangles)
+
+        for i, tri in enumerate(new_ind.triangles):
+            if random.random() > p_tri:
+                continue
+            comp = _get_components(tri)
+            mutated = False
+
+            # Triángulos de referencia para vector diferencial dentro del individuo
+            r1_idx, r2_idx = (
+                random.sample(range(n_triangles), 2) if n_triangles >= 2 else (i, i)
+            )
+            comp_r1 = _get_components(ind.triangles[r1_idx])
+            comp_r2 = _get_components(ind.triangles[r2_idx])
+
+            for c in range(_N_COMPONENTS):
+                if random.random() < p_comp:
+                    lo, hi = _RANGES[c]
+                    diff = comp_r1[c] - comp_r2[c]
+                    delta = f_scale * diff + random.gauss(0, (hi - lo) * 0.02 * (1.0 - t))
+                    comp[c] = max(lo, min(hi, comp[c] + delta))
+                    mutated = True
+            if mutated:
+                new_ind.triangles[i] = _set_components(comp)
+
+        new_ind.fitness = None
+        return new_ind
+
+    @staticmethod
+    def reevo_adaptive_neighborhood(
+        ind: Individual,
+        p_ind: float,
+        p_tri: float = 0.3,
+        p_comp: float = 0.2,
+        generation: int = 1,
+        max_generations: int = 1000,
+        initial_radius: float = 0.25,
+        alpha: float = 2.0,
+    ) -> Individual:
+        if random.random() > p_ind:
+            return ind
+        t = min(generation / max(max_generations, 1), 1.0)
+        # Adaptación no lineal del radio del vecindario
+        radius = initial_radius * ((1.0 - t) ** alpha) + 0.005
+
+        new_ind = copy.deepcopy(ind)
+        for i, tri in enumerate(new_ind.triangles):
+            if random.random() > p_tri:
+                continue
+            comp = _get_components(tri)
+            mutated = False
+            for c in range(_N_COMPONENTS):
+                if random.random() < p_comp:
+                    lo, hi = _RANGES[c]
+                    scale = radius * (hi - lo)
+                    u = random.random() - 0.5
+                    step = math.tan(math.pi * u * 0.45) * scale
+                    comp[c] = max(lo, min(hi, comp[c] + step))
+                    mutated = True
+            if mutated:
+                new_ind.triangles[i] = _set_components(comp)
+
+        new_ind.fitness = None
+        return new_ind
+
     @staticmethod
     def apply(
         ind: Individual,
@@ -175,6 +259,16 @@ class Mutation:
             return Mutation.uniform(ind, p_ind, p_tri=p_tri, p_comp=p_comp)
         elif method == "non_uniform":
             return Mutation.non_uniform(
+                ind, p_ind, p_tri=p_tri, p_comp=p_comp,
+                generation=generation, max_generations=max_generations,
+            )
+        elif method in ("llm_de", "llm_de_non_linear_differential"):
+            return Mutation.llm_de_non_linear_differential(
+                ind, p_ind, p_tri=p_tri, p_comp=p_comp,
+                generation=generation, max_generations=max_generations,
+            )
+        elif method in ("reevo", "reevo_adaptive", "reevo_adaptive_neighborhood"):
+            return Mutation.reevo_adaptive_neighborhood(
                 ind, p_ind, p_tri=p_tri, p_comp=p_comp,
                 generation=generation, max_generations=max_generations,
             )
