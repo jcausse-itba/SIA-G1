@@ -5,17 +5,18 @@ from skimage.color import lab2rgb
 from tp_2.ga.individual import Individual
 from tp_2.ga.color import hcl_to_lab
 
+
 @njit(fastmath=True)
-def draw_triangle_rgb_numba(
-    canvas_rgb: np.ndarray,
+def draw_triangle_lab_numba(
+    canvas_lab: np.ndarray,
     x0: int, y0: int,
     x1: int, y1: int,
     x2: int, y2: int,
-    tri_rgb: np.ndarray,
+    l_val: float, a_val: float, b_val: float,
     alpha: float
 ):
-    """Rasteriza aplicando Alpha Blending sobre un canvas RGB [0.0, 1.0]."""
-    height, width, _ = canvas_rgb.shape
+    """Rasterizes a triangle using Alpha Blending directly on a CIELAB canvas."""
+    height, width, _ = canvas_lab.shape
 
     min_x = max(0, min(x0, x1, x2))
     max_x = min(width - 1, max(x0, x1, x2))
@@ -27,6 +28,7 @@ def draw_triangle_rgb_numba(
         return
 
     inv_denom = 1.0 / denom
+    one_minus_alpha = 1.0 - alpha
 
     for y in range(min_y, max_y + 1):
         for x in range(min_x, max_x + 1):
@@ -34,14 +36,16 @@ def draw_triangle_rgb_numba(
             w1 = ((y2 - y0) * (x - x2) + (x0 - x2) * (y - y2)) * inv_denom
             w2 = 1.0 - w0 - w1
 
-            if w0 >= 0 and w1 >= 0 and w2 >= 0:
-                canvas_rgb[y, x, 0] = tri_rgb[0] * alpha + canvas_rgb[y, x, 0] * (1.0 - alpha)
-                canvas_rgb[y, x, 1] = tri_rgb[1] * alpha + canvas_rgb[y, x, 1] * (1.0 - alpha)
-                canvas_rgb[y, x, 2] = tri_rgb[2] * alpha + canvas_rgb[y, x, 2] * (1.0 - alpha)
+            if w0 >= 0.0 and w1 >= 0.0 and w2 >= 0.0:
+                canvas_lab[y, x, 0] = l_val * alpha + canvas_lab[y, x, 0] * one_minus_alpha
+                canvas_lab[y, x, 1] = a_val * alpha + canvas_lab[y, x, 1] * one_minus_alpha
+                canvas_lab[y, x, 2] = b_val * alpha + canvas_lab[y, x, 2] * one_minus_alpha
 
 
 def render_individual(individual: Individual, width: int, height: int) -> np.ndarray:
-    canvas_rgb = np.ones((height, width, 3), dtype=np.float32)
+    """Renders directly onto a CIELAB canvas (Default canvas is D65 white: L=100, a=0, b=0)."""
+    canvas_lab = np.zeros((height, width, 3), dtype=np.float32)
+    canvas_lab[:, :, 0] = 100.0
 
     for tri in individual.triangles:
         x0, y0 = int(tri.vertices[0][0] * width), int(tri.vertices[0][1] * height)
@@ -50,22 +54,24 @@ def render_individual(individual: Individual, width: int, height: int) -> np.nda
 
         h, c, l, alpha = tri.color
 
-        tri_lab = hcl_to_lab(h, c, l)
-        
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=UserWarning)
-            tri_rgb = lab2rgb(tri_lab.reshape((1, 1, 3))).reshape(3)
+        l_val, a_val, b_val = hcl_to_lab(h, c, l)
 
-        draw_triangle_rgb_numba(canvas_rgb, x0, y0, x1, y1, x2, y2, tri_rgb, alpha)
+        draw_triangle_lab_numba(
+            canvas_lab,
+            x0, y0, x1, y1, x2, y2,
+            float(l_val), float(a_val), float(b_val),
+            float(alpha)
+        )
 
-    from skimage.color import rgb2lab
-    return rgb2lab(canvas_rgb).astype(np.float32)
+    return canvas_lab
+
 
 def render_to_image(individual: Individual, width: int, height: int) -> np.ndarray:
-    # Si render_individual retorna CIELAB para la evaluación de fitness:
-    rendered_lab = render_individual(individual, width, height)
+    """Converts rendered CIELAB canvas to sRGB once at the very end."""
+    canvas_lab = render_individual(individual, width, height)
+
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=UserWarning)
-        rendered_rgb = lab2rgb(rendered_lab)
+        canvas_rgb = lab2rgb(canvas_lab)
 
-    return (np.clip(rendered_rgb, 0.0, 1.0) * 255.0).astype(np.uint8)
+    return (np.clip(canvas_rgb, 0.0, 1.0) * 255.0).astype(np.uint8)

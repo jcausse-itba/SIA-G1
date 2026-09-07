@@ -8,7 +8,6 @@ def hcl_to_lab(h: float, c: float, l: float) -> np.ndarray:
     a = c * np.cos(h_rad)
     b = c * np.sin(h_rad)
     
-    # Asegurar que L* esté en el rango [0, 100]
     l_clamped = max(0.0, min(100.0, l))
     return np.array([l_clamped, a, b], dtype=np.float32)
 
