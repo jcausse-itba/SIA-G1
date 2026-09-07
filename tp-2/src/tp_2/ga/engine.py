@@ -135,6 +135,8 @@ class GAEngine:
                             c1, c2 = Crossover.uniform(p1, p2)
                         elif cross_method == "annular":
                             c1, c2 = Crossover.annular(p1, p2)
+                        elif cross_method == "adaptive_layer_spatial":
+                            c1, c2 = Crossover.adaptive_layer_spatial(p1, p2)
                         else:
                             c1, c2 = Crossover.two_point(p1, p2)
                     else:
