@@ -28,7 +28,8 @@ class FitnessEvaluator:
         rendered_labs = render_individuals(population, self.width, self.height)
         fitnesses = []
         for individual, rendered_lab in zip(population, rendered_labs):
-            delta_e = np.linalg.norm(self.target_lab - rendered_lab, axis=-1)
+            diff = self.target_lab - rendered_lab
+            delta_e = np.sqrt(np.einsum('...i,...i->...', diff, diff))
             mean_delta_e = np.mean(delta_e)
             fitness = 10000.0 / (1.0 + mean_delta_e)
 
