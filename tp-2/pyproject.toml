@@ -26,8 +26,13 @@ dependencies = [
 tp-2 = "tp_2.__main__:main"
 
 [build-system]
-requires = ["uv_build>=0.12.5,<0.13.0"]
-build-backend = "uv_build"
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+python-source = "src"
+module-name = "tp_2._tp_2_rust"
 
 [dependency-groups]
 dev = [
