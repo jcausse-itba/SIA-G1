@@ -170,6 +170,31 @@ class Mutation:
         return new_ind
 
     @staticmethod
+    def scale_adaptive_gaussian(
+        ind: Individual, p_ind: float, p_tri: float = 0.3, p_comp: float = 0.2,
+        generation: int = 1, max_generations: int = 1000,
+        min_scale: float = 0.001, max_scale: float = 0.2,
+    ) -> Individual:
+        if random.random() > p_ind:
+            return ind
+        t = min(generation / max(max_generations, 1), 1.0)
+        scale = max_scale * (1.0 - t) + min_scale * t
+
+        new_ind = copy.deepcopy(ind)
+        n = new_ind.genome.shape[0]
+
+        tri_mask = np.random.rand(n) < p_tri
+        comp_mask = np.random.rand(n, 10) < p_comp
+        noise = np.random.normal(0, scale * _RANGES_DIFF, size=(n, 10))
+
+        final_mask = tri_mask[:, None] & comp_mask
+        new_ind.genome = np.where(final_mask, new_ind.genome + noise, new_ind.genome)
+
+        _clip_genome(new_ind.genome)
+        new_ind.fitness = None
+        return new_ind
+
+    @staticmethod
     def apply(
         ind: Individual, p_ind: float, method: str,
         generation: int = 1, max_generations: int = 1000,
@@ -193,6 +218,11 @@ class Mutation:
             )
         elif method in ("reevo", "reevo_adaptive", "reevo_adaptive_neighborhood"):
             return Mutation.reevo_adaptive_neighborhood(
+                ind, p_ind, p_tri=p_tri, p_comp=p_comp,
+                generation=generation, max_generations=max_generations,
+            )
+        elif method in ("scale_adaptive_gaussian", "gaussian_adaptive", "gaussian"):
+            return Mutation.scale_adaptive_gaussian(
                 ind, p_ind, p_tri=p_tri, p_comp=p_comp,
                 generation=generation, max_generations=max_generations,
             )

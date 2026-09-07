@@ -35,7 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
     methods.add_argument("--crossover", type=str, default="two_point",
                          choices=["one_point", "two_point", "uniform", "annular", "adaptive_layer_spatial"], help="Crossover method")
     methods.add_argument("--mutation", type=str, default="multigene_uniform",
-                         choices=["single_gene", "multigene_limited", "multigene_uniform", "complete", "reevo_adaptive_neighborhood", "llm_de_non_linear_differential"], help="Mutation method")
+                         choices=["single_gene", "multigene_limited", "multigene_uniform", "complete", "reevo_adaptive_neighborhood", "llm_de_non_linear_differential", "scale_adaptive_gaussian"], help="Mutation method")
 
     params = parser.add_argument_group("Method Specific Parameters")
     params.add_argument("--tournament-m", type=int, default=3, help="Group size M for deterministic tournaments")
