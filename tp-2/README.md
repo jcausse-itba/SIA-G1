@@ -22,6 +22,11 @@ Este proyecto utiliza `uv` para la gestión determinista de dependencias y entor
     ```
 
 3. Ejecución
-    ```bash
-    uv run tp_2
-    ```
+
+```bash
+# Para ejecutar una configuración
+uv run tp-2 --config ./path/to/config.toml
+
+# Para obtener todos los argumentos
+uv run tp-2 --help
+```
