@@ -1,0 +1,15 @@
+[package]
+name = "tp_2_rust"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "_tp_2_rust"
+crate-type = ["cdylib"]
+path = "rust/src/lib.rs"
+
+[dependencies]
+pyo3 = { version = "0.24", features = ["extension-module"] }
+numpy = "0.24"
+ndarray = "0.16"
+rayon = "1.11"

@@ -6,6 +6,12 @@ from skimage.color import lab2rgb
 from tp_2.ga.individual import Individual
 from tp_2.ga.color import hcl_to_lab
 
+try:
+    from tp_2._tp_2_rust import render_individuals_rust
+    RUST_AVAILABLE = True
+except ImportError:
+    RUST_AVAILABLE = False
+
 
 @njit(fastmath=True)
 def draw_triangle_lab_numba(
@@ -43,8 +49,12 @@ def draw_triangle_lab_numba(
                 canvas_lab[y, x, 2] = b_val * alpha + canvas_lab[y, x, 2] * one_minus_alpha
 
 
-def render_individuals(individuals: List[Individual], width: int, height: int) -> List[np.ndarray]:
-    """Renders a list of individuals directly onto CIELAB canvases (Default canvas is D65 white: L=100, a=0, b=0)."""
+def render_individuals(individuals: List[Individual], width: int, height: int, backend: str = "rust") -> List[np.ndarray]:
+    """Renders a list of individuals directly onto CIELAB canvases using Rust or Numba."""
+    if backend == "rust" and RUST_AVAILABLE:
+        genomes = [ind.genome.astype(np.float32) for ind in individuals]
+        return render_individuals_rust(genomes, width, height)
+
     canvases = []
     for individual in individuals:
         canvas_lab = np.zeros((height, width, 3), dtype=np.float32)
@@ -72,9 +82,9 @@ def render_individuals(individuals: List[Individual], width: int, height: int) -
     return canvases
 
 
-def render_to_image(individual: Individual, width: int, height: int) -> np.ndarray:
+def render_to_image(individual: Individual, width: int, height: int, backend: str = "rust") -> np.ndarray:
     """Converts rendered CIELAB canvas to sRGB once at the very end."""
-    canvas_lab = render_individuals([individual], width, height)[0]
+    canvas_lab = render_individuals([individual], width, height, backend=backend)[0]
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=UserWarning)
