@@ -67,7 +67,6 @@ class Crossover:
         n = len(p1.triangles)
         c1_tri, c2_tri = [], []
 
-        print("aaa")
         focal_point = random.random()
         bandwidth = 0.2 + 0.3 * random.random()
 
