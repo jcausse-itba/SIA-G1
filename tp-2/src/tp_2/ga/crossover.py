@@ -56,3 +56,32 @@ class Crossover:
                 c2_tri.append(p2.triangles[i])
                 
         return Individual(c1_tri), Individual(c2_tri)
+    
+    @staticmethod
+    def adaptive_layer_spatial(p1: Individual, p2: Individual) -> Tuple[Individual, Individual]:
+        """
+        SOTA Adaptive Layer-Preserving Crossover (ALPC).
+        Preserves structural z-index depth ordering while dynamically recombining
+        foreground details based on a non-linear layer-decay function.
+        """
+        n = len(p1.triangles)
+        c1_tri, c2_tri = [], []
+
+        print("aaa")
+        focal_point = random.random()
+        bandwidth = 0.2 + 0.3 * random.random()
+
+        for i in range(n):
+            layer_ratio = i / max(1, n - 1)
+            
+            dist = (layer_ratio - focal_point) / bandwidth
+            swap_prob = math.exp(-0.5 * (dist ** 2))
+            
+            if random.random() < swap_prob:
+                c1_tri.append(p2.triangles[i])
+                c2_tri.append(p1.triangles[i])
+            else:
+                c1_tri.append(p1.triangles[i])
+                c2_tri.append(p2.triangles[i])
+                
+        return Individual(c1_tri), Individual(c2_tri)
