@@ -1,3 +1,4 @@
+from typing import List
 import numpy as np
 import warnings
 from numba import njit
@@ -42,35 +43,38 @@ def draw_triangle_lab_numba(
                 canvas_lab[y, x, 2] = b_val * alpha + canvas_lab[y, x, 2] * one_minus_alpha
 
 
-def render_individual(individual: Individual, width: int, height: int) -> np.ndarray:
-    """Renders directly onto a CIELAB canvas (Default canvas is D65 white: L=100, a=0, b=0)."""
-    canvas_lab = np.zeros((height, width, 3), dtype=np.float32)
-    canvas_lab[:, :, 0] = 100.0
+def render_individuals(individuals: List[Individual], width: int, height: int) -> List[np.ndarray]:
+    """Renders a list of individuals directly onto CIELAB canvases (Default canvas is D65 white: L=100, a=0, b=0)."""
+    canvases = []
+    for individual in individuals:
+        canvas_lab = np.zeros((height, width, 3), dtype=np.float32)
+        canvas_lab[:, :, 0] = 100.0
 
-    for i in range(individual.genome.shape[0]):
-        gene = individual.genome[i]
-        
-        x0, y0 = int(gene[0] * width), int(gene[1] * height)
-        x1, y1 = int(gene[2] * width), int(gene[3] * height)
-        x2, y2 = int(gene[4] * width), int(gene[5] * height)
+        for i in range(individual.genome.shape[0]):
+            gene = individual.genome[i]
+            
+            x0, y0 = int(gene[0] * width), int(gene[1] * height)
+            x1, y1 = int(gene[2] * width), int(gene[3] * height)
+            x2, y2 = int(gene[4] * width), int(gene[5] * height)
 
-        h, c, l, alpha = gene[6], gene[7], gene[8], gene[9]
+            h, c, l, alpha = gene[6], gene[7], gene[8], gene[9]
 
-        l_val, a_val, b_val = hcl_to_lab(h, c, l)
+            l_val, a_val, b_val = hcl_to_lab(h, c, l)
 
-        draw_triangle_lab_numba(
-            canvas_lab,
-            x0, y0, x1, y1, x2, y2,
-            float(l_val), float(a_val), float(b_val),
-            float(alpha)
-        )
+            draw_triangle_lab_numba(
+                canvas_lab,
+                x0, y0, x1, y1, x2, y2,
+                float(l_val), float(a_val), float(b_val),
+                float(alpha)
+            )
+        canvases.append(canvas_lab)
 
-    return canvas_lab
+    return canvases
 
 
 def render_to_image(individual: Individual, width: int, height: int) -> np.ndarray:
     """Converts rendered CIELAB canvas to sRGB once at the very end."""
-    canvas_lab = render_individual(individual, width, height)
+    canvas_lab = render_individuals([individual], width, height)[0]
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=UserWarning)
