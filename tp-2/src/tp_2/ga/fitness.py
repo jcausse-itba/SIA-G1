@@ -1,6 +1,5 @@
 import numpy as np
 import cv2
-from skimage.metrics import structural_similarity as ssim
 from tp_2.ga.individual import Individual
 from tp_2.image.render import render_individual
 from tp_2.ga.color import rgb_to_lab_vectorized
