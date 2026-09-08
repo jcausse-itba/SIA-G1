@@ -53,7 +53,9 @@ class GAEngine:
         elif method == "ranking":
             return Selection.ranking(population, k)
         elif method == "funsearch_priority":
-            return Selection.funsearch_priority(population, k)
+            temp = self.cfg.get("funsearch_temperature", 1.0)
+            penalty = self.cfg.get("funsearch_penalty", 0.0)
+            return Selection.funsearch_priority(population, k, temperature=temp, length_penalty_weight=penalty)
         elif method == "eoh_routing":
             return Selection.eoh_routing(population, k)
         else:
@@ -173,7 +175,6 @@ class GAEngine:
             std_fit = float(np.std(fits))
             elapsed_sec = time.time() - start_time
 
-            # Despeje exacto de Delta E desde la fórmula normalizada [0.0, 1.0]: fitness = 1 - (delta_e / 100)
             best_delta_e = (1.0 - gen_best_fit) * 100.0 if gen_best_fit >= 0 else float("inf")
             mean_delta_e = (1.0 - mean_fit) * 100.0 if mean_fit >= 0 else float("inf")
 
@@ -206,6 +207,11 @@ class GAEngine:
                         rendered,
                         str(Path(frames_dir) / f"gen_{generation:05d}.png")
                     )
+            
+            time_limit = cfg.get("time_limit_sec", None)
+            if time_limit is not None and elapsed_sec >= time_limit:
+                print(f"\n[FIN] Límite de tiempo por trial alcanzado ({time_limit}s).")
+                break
 
         final_rendered = render_to_image(best, self.evaluator.width, self.evaluator.height)
         ImageUtils.save_image(final_rendered, output_path)
