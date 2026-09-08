@@ -27,18 +27,13 @@ class FitnessEvaluator:
     def evaluate(self, population: List[Individual]) -> List[float]:
         rendered_labs = render_individuals(population, self.width, self.height)
         fitnesses = []
-        
-        # Distancia Delta E máxima esperada en CIELAB para escala [0, 1]
-        max_possible_delta_e = 100.0
 
         for individual, rendered_lab in zip(population, rendered_labs):
             diff = self.target_lab - rendered_lab
             delta_e = np.sqrt(np.einsum('...i,...i->...', diff, diff))
-            mean_delta_e = np.mean(delta_e)
             
             # Normalización a rango [0.0, 1.0]
-            # 1.0 representa coincidencia exacta (mean_delta_e = 0)
-            fitness = max(0.0, 1.0 - (mean_delta_e / max_possible_delta_e))
+            fitness = max(0.0, 1.0 - (np.mean(delta_e) / 100.0))
 
             individual.fitness = fitness
             fitnesses.append(fitness)
