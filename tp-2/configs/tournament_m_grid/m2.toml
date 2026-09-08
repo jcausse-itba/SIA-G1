@@ -7,7 +7,6 @@ children_size = 60
 crossover_prob = 0.8
 mutation_prob = 0.05
 survival_strategy = "additive"
-generation_gap = 1.0
 parent_selection = "det_tournament"
 survival_selection = "elite"
 crossover = "two_point"
