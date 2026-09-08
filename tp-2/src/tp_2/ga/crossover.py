@@ -60,11 +60,6 @@ class Crossover:
     
     @staticmethod
     def adaptive_layer_spatial(p1: Individual, p2: Individual) -> Tuple[Individual, Individual]:
-        """
-        SOTA Adaptive Layer-Preserving Crossover (ALPC).
-        Preserves structural z-index depth ordering while dynamically recombining
-        foreground details based on a non-linear layer-decay function.
-        """
         n = p1.genome.shape[0]
         if n < 1:
             return Individual(p1.genome.copy()), Individual(p2.genome.copy())
