@@ -1,5 +1,5 @@
 # Crossover method (experimental): adaptive_layer_spatial — add method-specific params once defined
-image_path = "./figures/saudi-flag.png"
+image_path = "./figures/brazil-flag.png"
 output_path = "./output/crossover/adaptive_layer_spatial.png"
 num_triangles = 50
 pop_size = 100

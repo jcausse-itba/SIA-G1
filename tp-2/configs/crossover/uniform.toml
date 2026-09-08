@@ -1,5 +1,5 @@
 # Crossover method comparison: uniform
-image_path = "./figures/saudi-flag.png"
+image_path = "./figures/brazil-flag.png"
 output_path = "./output/crossover/uniform.png"
 num_triangles = 50
 pop_size = 100
