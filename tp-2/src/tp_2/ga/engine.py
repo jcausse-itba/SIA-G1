@@ -2,6 +2,7 @@ import copy
 import math
 import random
 from pathlib import Path
+import time
 from typing import Any, Dict, List
 
 import numpy as np
@@ -15,7 +16,6 @@ from tp_2.ga.stopping import StoppingCriteria
 from tp_2.ga.survival import Survival
 from tp_2.image.render import render_to_image
 from tp_2.image.utils import ImageUtils
-from tp_2.metrics.plotting import plot_fitness_curve, plot_diversity, save_metrics_csv
 
 
 class GAEngine:
@@ -26,9 +26,6 @@ class GAEngine:
         self.stopping  = StoppingCriteria(config)
         self.history: List[Dict] = []   # métricas por generación
 
-    # ------------------------------------------------------------------
-    # Dispatcher de selección (incluye temperatura para Boltzmann)
-    # ------------------------------------------------------------------
     def _select(
         self,
         method: str,
@@ -63,9 +60,6 @@ class GAEngine:
             print(f"[WARN] Método de selección desconocido: {method!r}. Usando roulette.")
             return Selection.roulette(population, k)
 
-    # ------------------------------------------------------------------
-    # Loop principal
-    # ------------------------------------------------------------------
     def run(self) -> Individual:
         cfg = self.cfg
 
@@ -73,7 +67,7 @@ class GAEngine:
         num_triangles  = cfg.get("num_triangles",   30)
         children_size  = cfg.get("children_size",  pop_size)
         crossover_prob = cfg.get("crossover_prob",  0.8)
-        mutation_prob  = cfg.get("mutation_prob",   0.1)   # p_ind
+        mutation_prob  = cfg.get("mutation_prob",   0.1)
         p_tri          = cfg.get("p_tri",           0.3)
         p_comp         = cfg.get("p_comp",          0.2)
         max_gen        = cfg.get("max_generations", 1000)
@@ -91,13 +85,11 @@ class GAEngine:
         if save_frames:
             Path(frames_dir).mkdir(parents=True, exist_ok=True)
 
-        # 1. Población inicial
         population = [
             Individual.random_init(num_triangles) for _ in range(pop_size)
         ]
         self.evaluator.evaluate(population)
 
-        # Copia profunda del mejor inicial
         best_candidate = max(population, key=lambda x: x.fitness if x.fitness is not None else -float("inf"))
         best = copy.deepcopy(best_candidate)
         generation = 0
@@ -106,9 +98,10 @@ class GAEngine:
         print(f"    cruza={cross_method} | mutación={mut_method}")
         print(f"    selección_padres={parent_method} | supervivencia={surv_strategy}/{surv_method}")
 
-        # Render inicial con conversión CIELAB -> RGB uint8
         rendered = render_to_image(best, self.evaluator.width, self.evaluator.height)
         ImageUtils.save_image(rendered, output_path)
+
+        start_time = time.time()
 
         while True:
             generation += 1
@@ -119,10 +112,8 @@ class GAEngine:
                 print(f"\n[FIN] Generación {generation}: {reason}")
                 break
 
-            # 2. Selección de padres
             parents = self._select(parent_method, population, children_size, generation)
 
-            # 3. Cruza
             children: List[Individual] = []
             for i in range(0, len(parents), 2):
                 if i + 1 < len(parents):
@@ -142,12 +133,10 @@ class GAEngine:
                         c1, c2 = copy.deepcopy(p1), copy.deepcopy(p2)
                     children.extend([c1, c2])
                 else:
-                    # Parent sin pareja
                     children.append(copy.deepcopy(parents[i]))
 
             children = children[:children_size]
 
-            # 4. Mutación jerárquica
             for i, child in enumerate(children):
                 children[i] = Mutation.apply(
                     child,
@@ -160,7 +149,6 @@ class GAEngine:
                 )
             self.evaluator.evaluate(children)
 
-            # 5. Supervivencia
             def surv_selector(pool, k):
                 return self._select(surv_method, pool, k, generation)
 
@@ -169,7 +157,6 @@ class GAEngine:
                 surv_strategy, surv_selector, elitism,
             )
 
-            # 6. Métricas
             fits: List[float] = [ind.fitness for ind in population if ind.fitness is not None]
             
             gen_best = max(population, key=lambda x: x.fitness if x.fitness is not None else -float("inf"))
@@ -179,17 +166,28 @@ class GAEngine:
             
             improved = gen_best_fit > current_best_fit
             if improved:
-                best = copy.deepcopy(gen_best)  # Copia aislada para evitar mutaciones in-place posteriores
+                best = copy.deepcopy(gen_best)
+
+            mean_fit = float(np.mean(fits))
+            worst_fit = float(np.min(fits))
+            std_fit = float(np.std(fits))
+            elapsed_sec = time.time() - start_time
+
+            # Despeje exacto de Delta E desde la fórmula normalizada [0.0, 1.0]: fitness = 1 - (delta_e / 100)
+            best_delta_e = (1.0 - gen_best_fit) * 100.0 if gen_best_fit >= 0 else float("inf")
+            mean_delta_e = (1.0 - mean_fit) * 100.0 if mean_fit >= 0 else float("inf")
 
             self.history.append({
-                "generation":  generation,
-                "best":        best.fitness if best.fitness is not None else 0.0,
-                "mean":        float(np.mean(fits)),
-                "std":         float(np.std(fits)),
-                "worst":       float(np.min(fits)),
+                "generation":       generation,
+                "elapsed_time_sec": elapsed_sec,
+                "best":             best.fitness if best.fitness is not None else 0.0,
+                "mean":             mean_fit,
+                "std":              std_fit,
+                "worst":            worst_fit,
+                "best_error":       best_delta_e,
+                "mean_error":       mean_delta_e,
             })
 
-            # 7. Logging y guardado
             if generation % save_interval == 0 or improved or generation == 1:
                 tag = " [MEJORA]" if improved else ""
                 print(
@@ -209,25 +207,7 @@ class GAEngine:
                         str(Path(frames_dir) / f"gen_{generation:05d}.png")
                     )
 
-        # 8. Guardado del resultado final con el 'best' aislado
         final_rendered = render_to_image(best, self.evaluator.width, self.evaluator.height)
         ImageUtils.save_image(final_rendered, output_path)
-
-        # 9. Métricas finales
-        metrics_dir = cfg.get("metrics_dir", "metrics")
-        label = (
-            f"{cross_method}_{mut_method}_{parent_method}_{surv_strategy}"
-        )
-        plot_fitness_curve(
-            self.history,
-            path=f"{metrics_dir}/fitness_curve.png",
-            title=f"Fitness — {label}",
-        )
-        plot_diversity(
-            self.history,
-            path=f"{metrics_dir}/diversity.png",
-            title=f"Diversidad — {label}",
-        )
-        save_metrics_csv(self.history, path=f"{metrics_dir}/metrics.csv")
 
         return best

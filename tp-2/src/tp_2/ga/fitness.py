@@ -5,11 +5,11 @@ from tp_2.ga.individual import Individual
 from tp_2.image.render import render_individuals
 from tp_2.ga.color import rgb_to_lab_vectorized
 
+
 class FitnessEvaluator:
-    def __init__(self, target_rgb_img: np.ndarray, eval_scale: float = 0.5):
+    def __init__(self, target_rgb_img: np.ndarray, eval_scale: float = 1.0):
         """
-        eval_scale: Factor de reescalado (0.0 < eval_scale <= 1.0).
-        Reducir la escala acelera dramáticamente el cálculo de fitness.
+        eval_scale: Factor de reescalado para acelerar la evaluación.
         """
         self.eval_scale = eval_scale
         
@@ -27,12 +27,20 @@ class FitnessEvaluator:
     def evaluate(self, population: List[Individual]) -> List[float]:
         rendered_labs = render_individuals(population, self.width, self.height)
         fitnesses = []
+        
+        # Distancia Delta E máxima esperada en CIELAB para escala [0, 1]
+        max_possible_delta_e = 100.0
+
         for individual, rendered_lab in zip(population, rendered_labs):
             diff = self.target_lab - rendered_lab
             delta_e = np.sqrt(np.einsum('...i,...i->...', diff, diff))
-            mean_delta_e = np.mean(delta_e)
-            fitness = 10000.0 / (1.0 + mean_delta_e)
+            mean_delta_e = float(np.mean(delta_e))
+            
+            # Normalización a rango [0.0, 1.0]
+            # 1.0 representa coincidencia exacta (mean_delta_e = 0)
+            fitness = max(0.0, 1.0 - (mean_delta_e / max_possible_delta_e))
 
             individual.fitness = fitness
             fitnesses.append(fitness)
+            
         return fitnesses
