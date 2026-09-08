@@ -111,7 +111,7 @@ class Selection:
         return selected
 
     @staticmethod
-    def funsearch_priority(population: List[Individual], k: int, temperature: float = 1.0, length_penalty_weight: float = 0.0) -> List[Individual]:
+    def funsearch_priority(population: List[Individual], k: int, temperature: float = 3.0333557176709616, length_penalty_weight: float = 0.0) -> List[Individual]:
         """Selección por Prioridad de FunSearch: combina fitness escalado por temperatura con penalización opcional por longitud."""
 
         max_fit = max(ind.fitness for ind in population)
