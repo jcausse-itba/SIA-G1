@@ -29,4 +29,10 @@ uv run tp-2 --config ./path/to/config.toml
 
 # Para obtener todos los argumentos
 uv run tp-2 --help
+
+# Para correr todos los archivos de configuración en una corrida (para métricas)
+uv run python -m tp_2.metrics.batch_load
+
+# Para generar los gráficos
+uv run python -m tp_2.metrics
 ```
