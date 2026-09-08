@@ -34,7 +34,7 @@ class FitnessEvaluator:
         for individual, rendered_lab in zip(population, rendered_labs):
             diff = self.target_lab - rendered_lab
             delta_e = np.sqrt(np.einsum('...i,...i->...', diff, diff))
-            mean_delta_e = float(np.mean(delta_e))
+            mean_delta_e = np.mean(delta_e)
             
             # Normalización a rango [0.0, 1.0]
             # 1.0 representa coincidencia exacta (mean_delta_e = 0)
