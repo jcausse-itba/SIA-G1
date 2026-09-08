@@ -5,6 +5,12 @@ from tp_2.ga.individual import Individual
 from tp_2.image.render import render_individuals
 from tp_2.ga.color import rgb_to_lab_vectorized
 
+try:
+    from tp_2._tp_2_rust import evaluate_fitness_rust
+    RUST_AVAILABLE = True
+except ImportError:
+    RUST_AVAILABLE = False
+
 class FitnessEvaluator:
     def __init__(self, target_rgb_img: np.ndarray, eval_scale: float = 0.5):
         """
@@ -22,17 +28,13 @@ class FitnessEvaluator:
         self.height, self.width = target_rgb_img.shape[:2]
         rgb_only = target_rgb_img[:, :, :3]
 
-        self.target_lab = rgb_to_lab_vectorized(rgb_only)
+        self.target_lab = np.ascontiguousarray(rgb_to_lab_vectorized(rgb_only), dtype=np.float32)
     
     def evaluate(self, population: List[Individual]) -> List[float]:
-        rendered_labs = render_individuals(population, self.width, self.height)
-        fitnesses = []
-        for individual, rendered_lab in zip(population, rendered_labs):
-            diff = self.target_lab - rendered_lab
-            delta_e = np.sqrt(np.einsum('...i,...i->...', diff, diff))
-            mean_delta_e = np.mean(delta_e)
-            fitness = 10000.0 / (1.0 + mean_delta_e)
-
-            individual.fitness = fitness
-            fitnesses.append(fitness)
-        return fitnesses
+        if RUST_AVAILABLE:
+            genomes = np.ascontiguousarray([ind.genome for ind in population], dtype=np.float32)
+            fitnesses = evaluate_fitness_rust(genomes, self.target_lab, self.width, self.height)
+            for ind, fit in zip(population, fitnesses):
+                ind.fitness = fit
+            return fitnesses
+        return []

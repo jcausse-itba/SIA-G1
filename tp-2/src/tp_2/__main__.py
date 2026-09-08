@@ -33,7 +33,7 @@ def main() -> None:
     full_height, full_width = target_img_full.shape[:2]
 
     # 2. Cargar imagen en baja resolución solo para acelerar la función de fitness
-    eval_size = cfg.get("eval_size", 128)
+    eval_size = cfg.get("eval_size", 1024)
     target_img_eval = ImageUtils.load_target_image(
         image_path, max_size=(eval_size, eval_size)
     )

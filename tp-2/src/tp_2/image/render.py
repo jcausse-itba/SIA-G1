@@ -52,7 +52,7 @@ def draw_triangle_lab_numba(
 def render_individuals(individuals: List[Individual], width: int, height: int, backend: str = "rust") -> List[np.ndarray]:
     """Renders a list of individuals directly onto CIELAB canvases using Rust or Numba."""
     if backend == "rust" and RUST_AVAILABLE:
-        genomes = [ind.genome.astype(np.float32) for ind in individuals]
+        genomes = np.ascontiguousarray([ind.genome for ind in individuals], dtype=np.float32)
         return render_individuals_rust(genomes, width, height)
 
     canvases = []
