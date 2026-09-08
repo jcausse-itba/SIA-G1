@@ -11,6 +11,13 @@ class Individual:
         self.genome = genome
         self.fitness = fitness
 
+    @property
+    def length(self) -> int:
+        return self.genome.shape[0]
+
+    def __len__(self) -> int:
+        return self.genome.shape[0]
+
     @classmethod
     def random_init(cls, num_triangles: int) -> 'Individual':
         """Crea un individuo generando N triángulos al azar en un array NumPy contiguo."""

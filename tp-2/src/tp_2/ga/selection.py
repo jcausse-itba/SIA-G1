@@ -120,7 +120,10 @@ class Selection:
             fit_score = math.exp((ind.fitness - max_fit) / temperature)
             length_penalty = 1.0
             if length_penalty_weight > 0:
-                length = getattr(ind, 'length', len(ind) if hasattr(ind, '__len__') else 0)
+                if hasattr(ind, 'genome'):
+                    length = len(ind.genome)
+                else:
+                    length = getattr(ind, 'length', len(ind) if hasattr(ind, '__len__') else 0)
                 length_penalty = 1.0 / (1.0 + length_penalty_weight * length)
             priorities.append(fit_score * length_penalty)
 

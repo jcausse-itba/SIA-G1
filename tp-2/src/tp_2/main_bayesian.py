@@ -88,6 +88,7 @@ def objective(trial: optuna.Trial) -> float:
     
     # Selection and Mutation Hyperparams
     funsearch_temp = trial.suggest_float("funsearch_temperature", 0.1, 10.0, log=True)
+    funsearch_penalty = trial.suggest_float("funsearch_penalty", 0.0, 1.0)
     elitism = trial.suggest_int("elitism", 1, max(2, pop_size // 10))
     
     # Build config dictionary for GAEngine
@@ -109,6 +110,7 @@ def objective(trial: optuna.Trial) -> float:
         "crossover": "adaptive_layer_spatial",
         "mutation": "scale_adaptive_gaussian",
         "funsearch_temperature": funsearch_temp,
+        "funsearch_penalty": funsearch_penalty,
         
         # System/Time constraints
         "max_generations": 100000, 
@@ -165,6 +167,7 @@ def main():
         "p_tri": 0.30,
         "p_comp": 0.20,
         "funsearch_temperature": 1.0,
+        "funsearch_penalty": 0.0,
         "elitism": 2
     }
     study.enqueue_trial(educated_guess)
