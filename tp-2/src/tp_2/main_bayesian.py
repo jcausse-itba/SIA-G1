@@ -1,5 +1,6 @@
 import sys
 import time
+import threading
 from pathlib import Path
 
 import pandas as pd
@@ -19,7 +20,57 @@ OUTPUT_DIR = Path("optuna_outputs")
 
 MAX_TRIALS         = 100000 
 TIME_PER_TRIAL_SEC = 60       # Limit GA execution to 1 minute per iteration
-TOTAL_TIMEOUT_SEC  = 1800     # Execute Optuna for a total of 30 minutes
+
+stop_optimization = False
+thread_running = True
+
+def listen_for_quit():
+    """Background listener catching Shift+Q (capital 'Q') cross-platform."""
+    global stop_optimization
+    print("\n[INFO] Presiona 'Shift+Q' (Q mayúscula) en cualquier momento para detener la optimización de forma segura.")
+    try:
+        import msvcrt
+        while thread_running:
+            if msvcrt.kbhit():
+                if msvcrt.getch() == b'Q':
+                    stop_optimization = True
+                    print("\n[!] Shift+Q detectado. Deteniendo optimización al final del trial actual...")
+                    break
+            time.sleep(0.1)
+    except ImportError:
+        import select
+        try:
+            import termios
+            import tty
+            fd = sys.stdin.fileno()
+            old_settings = termios.tcgetattr(fd)
+            tty.setcbreak(fd)
+            has_termios = True
+        except Exception:
+            has_termios = False
+
+        try:
+            while thread_running:
+                if has_termios:
+                    try:
+                        if select.select([sys.stdin], [], [], 0.1)[0]:
+                            c = sys.stdin.read(1)
+                            if c == 'Q':
+                                stop_optimization = True
+                                print("\n[!] Shift+Q detectado. Deteniendo optimización al final del trial actual...")
+                                break
+                    except Exception:
+                        time.sleep(0.5)
+                else:
+                    time.sleep(0.5)
+        finally:
+            if has_termios:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+def stop_callback(study, trial):
+    """Optuna callback to stop the study if requested by the user."""
+    if stop_optimization:
+        study.stop()
 
 
 def objective(trial: optuna.Trial) -> float:
@@ -98,6 +149,7 @@ def objective(trial: optuna.Trial) -> float:
 
 
 def main():
+    global thread_running
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     
     # Bayesian Sampler (TPE)
@@ -119,15 +171,20 @@ def main():
 
     print(f"=== Iniciando Optuna Bayesian Search ===")
     print(f" Tiempo límite por iteración: {TIME_PER_TRIAL_SEC}s")
-    print(f" Tiempo total máximo de búsqueda: {TOTAL_TIMEOUT_SEC}s (30 min)")
+
+    listener = threading.Thread(target=listen_for_quit, daemon=True)
+    listener.start()
     
     # Run optimization
     study.optimize(
         objective, 
         n_trials=MAX_TRIALS, 
-        timeout=TOTAL_TIMEOUT_SEC, 
+        callbacks=[stop_callback],
         catch=(Exception,)
     )
+
+    thread_running = False
+    listener.join(timeout=1.0)
 
     print("\n=========================================")
     print("[OK] Optimización finalizada con éxito.")
