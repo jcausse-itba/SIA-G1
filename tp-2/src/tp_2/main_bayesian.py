@@ -27,12 +27,13 @@ def objective(trial: optuna.Trial) -> float:
     Optuna objective function for evaluating GA hyperparameters.
     """
     # 1. Hyperparameter Search Space Definition
-    pop_size = trial.suggest_int("pop_size", 20, 100)
+    pop_size = trial.suggest_int("pop_size", 20, 1000)
     num_triangles = trial.suggest_int("num_triangles", 30, 100)
-    crossover_prob = trial.suggest_float("crossover_prob", 0.6, 1.0)
-    mutation_prob = trial.suggest_float("mutation_prob", 0.05, 0.4)
-    p_tri = trial.suggest_float("p_tri", 0.1, 0.6)
-    p_comp = trial.suggest_float("p_comp", 0.1, 0.5)
+    crossover_prob = trial.suggest_float("crossover_prob", 0.1, 1.0)
+    mutation_prob = trial.suggest_float("mutation_prob", 0.06, 0.01)
+    add_triangle_prob = trial.suggest_float("add_triangle_prob", 0.0, 0.05)
+    p_tri = trial.suggest_float("p_tri", 0.1, 0.9)
+    p_comp = trial.suggest_float("p_comp", 0.01, 0.5)
     
     # Selection and Mutation Hyperparams
     funsearch_temp = trial.suggest_float("funsearch_temperature", 0.1, 10.0, log=True)
@@ -45,6 +46,7 @@ def objective(trial: optuna.Trial) -> float:
         "children_size": pop_size,
         "crossover_prob": crossover_prob,
         "mutation_prob": mutation_prob,
+        "add_triangle_prob": add_triangle_prob,
         "p_tri": p_tri,
         "p_comp": p_comp,
         "elitism": elitism,
@@ -107,6 +109,7 @@ def main():
         "num_triangles": 50,
         "crossover_prob": 0.85,
         "mutation_prob": 0.20,
+        "add_triangle_prob": 0.01,
         "p_tri": 0.30,
         "p_comp": 0.20,
         "funsearch_temperature": 1.0,
