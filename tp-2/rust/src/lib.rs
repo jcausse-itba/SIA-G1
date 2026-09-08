@@ -6,14 +6,15 @@ use rayon::prelude::*;
 #[inline(always)]
 fn hcl_to_lab(h: f32, c: f32, l: f32) -> (f32, f32, f32) {
     let rad = h.to_radians();
-    (l, c * rad.cos(), c * rad.sin())
+    let (sin, cos) = rad.sin_cos();
+    (l, c * cos, c * sin)
 }
 
 #[inline(always)]
 fn blend_pixel(pixel: &mut [f32], src_l: f32, src_a: f32, src_b: f32, one_minus_alpha: f32) {
-    pixel[0] = src_l + pixel[0] * one_minus_alpha;
-    pixel[1] = src_a + pixel[1] * one_minus_alpha;
-    pixel[2] = src_b + pixel[2] * one_minus_alpha;
+    pixel[0] = pixel[0] * one_minus_alpha + src_l;
+    pixel[1] = pixel[1] * one_minus_alpha + src_a;
+    pixel[2] = pixel[2] * one_minus_alpha + src_b;
 }
 
 #[inline]
@@ -33,7 +34,25 @@ fn render_span(
         let end_idx = (y * width + x_end + 1) * 3;
         let span = &mut canvas[start_idx..end_idx];
 
-        for pixel in span.chunks_exact_mut(3) {
+        // 12-float (4-pixel) unrolled chunk loop for SIMD auto-vectorization
+        let mut chunks = span.chunks_exact_mut(12);
+        for chunk in &mut chunks {
+            chunk[0] = chunk[0] * one_minus_alpha + src_l;
+            chunk[1] = chunk[1] * one_minus_alpha + src_a;
+            chunk[2] = chunk[2] * one_minus_alpha + src_b;
+            chunk[3] = chunk[3] * one_minus_alpha + src_l;
+            chunk[4] = chunk[4] * one_minus_alpha + src_a;
+            chunk[5] = chunk[5] * one_minus_alpha + src_b;
+            chunk[6] = chunk[6] * one_minus_alpha + src_l;
+            chunk[7] = chunk[7] * one_minus_alpha + src_a;
+            chunk[8] = chunk[8] * one_minus_alpha + src_b;
+            chunk[9] = chunk[9] * one_minus_alpha + src_l;
+            chunk[10] = chunk[10] * one_minus_alpha + src_a;
+            chunk[11] = chunk[11] * one_minus_alpha + src_b;
+        }
+
+        let remainder = chunks.into_remainder();
+        for pixel in remainder.chunks_exact_mut(3) {
             blend_pixel(pixel, src_l, src_a, src_b, one_minus_alpha);
         }
     }
@@ -50,9 +69,12 @@ fn extract_polygon_bounds(
     let mut min_y = height as i32;
     let mut max_y = -1i32;
 
+    let width_f = width as f32;
+    let height_f = height as f32;
+
     for v in 0..num_verts {
-        let x = row[2 * v] * width as f32;
-        let y = row[2 * v + 1] * height as f32;
+        let x = row[2 * v] * width_f;
+        let y = row[2 * v + 1] * height_f;
         coords.push((x, y));
 
         let y_i = y as i32;
@@ -112,8 +134,14 @@ fn draw_gene(
             j = i;
         }
 
-        intersections
-            .sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        if intersections.len() == 2 {
+            if intersections[0] > intersections[1] {
+                intersections.swap(0, 1);
+            }
+        } else {
+            intersections
+                .sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        }
 
         for chunk in intersections.chunks_exact(2) {
             let x_start = (chunk[0].ceil() as i32).clamp(0, width as i32 - 1) as usize;
@@ -141,8 +169,15 @@ fn render_single_individual(
 ) -> Array3<f32> {
     let mut canvas = vec![0.0f32; height * width * 3];
 
-    // Initialize Lightness channel (L*) to 100.0
-    for i in (0..canvas.len()).step_by(3) {
+    // Initialize Lightness channel (L*) to 100.0 (SIMD-friendly unrolled fill)
+    for chunk in canvas.chunks_exact_mut(12) {
+        chunk[0] = 100.0;
+        chunk[3] = 100.0;
+        chunk[6] = 100.0;
+        chunk[9] = 100.0;
+    }
+    let rem_start = (canvas.len() / 12) * 12;
+    for i in (rem_start..canvas.len()).step_by(3) {
         canvas[i] = 100.0;
     }
 
