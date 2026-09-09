@@ -7,19 +7,19 @@ class Crossover:
 
     @staticmethod
     def one_point(p1: Individual, p2: Individual) -> Tuple[Individual, Individual]:
-        n = p1.genome.shape[0]
+        n = min(p1.genome.shape[0], p2.genome.shape[0])
         if n < 2:
             return Individual(p1.genome.copy()), Individual(p2.genome.copy())
         point = np.random.randint(1, n)
         
-        c1_genome = np.concatenate((p1.genome[:point], p2.genome[point:]), axis=0)
-        c2_genome = np.concatenate((p2.genome[:point], p1.genome[point:]), axis=0)
+        c1_genome = np.concatenate((p1.genome[:point], p2.genome[point:n], p1.genome[n:]), axis=0)
+        c2_genome = np.concatenate((p2.genome[:point], p1.genome[point:n], p2.genome[n:]), axis=0)
         
         return Individual(c1_genome), Individual(c2_genome)
 
     @staticmethod
     def two_point(p1: Individual, p2: Individual) -> Tuple[Individual, Individual]:
-        n = p1.genome.shape[0]
+        n = min(p1.genome.shape[0], p2.genome.shape[0])
         if n < 3:
             return Crossover.one_point(p1, p2)
         pt1, pt2 = np.sort(np.random.choice(np.arange(1, n), size=2, replace=False))
@@ -31,19 +31,19 @@ class Crossover:
 
     @staticmethod
     def uniform(p1: Individual, p2: Individual, p: float = 0.5) -> Tuple[Individual, Individual]:
-        n = p1.genome.shape[0]
+        n = min(p1.genome.shape[0], p2.genome.shape[0])
         if n < 1:
             return Individual(p1.genome.copy()), Individual(p2.genome.copy())
         mask = (np.random.rand(n) < p).reshape((-1,) + (1,) * (p1.genome.ndim - 1))
         
-        c1 = np.where(mask, p1.genome, p2.genome)
-        c2 = np.where(mask, p2.genome, p1.genome)
+        c1 = np.concatenate((np.where(mask, p1.genome[:n], p2.genome[:n]), p1.genome[n:]), axis=0)
+        c2 = np.concatenate((np.where(mask, p2.genome[:n], p1.genome[:n]), p2.genome[n:]), axis=0)
         
         return Individual(c1), Individual(c2)
 
     @staticmethod
     def annular(p1: Individual, p2: Individual) -> Tuple[Individual, Individual]:
-        n = p1.genome.shape[0]
+        n = min(p1.genome.shape[0], p2.genome.shape[0])
         if n < 1:
             return Individual(p1.genome.copy()), Individual(p2.genome.copy())
         start = np.random.randint(0, n)
@@ -53,14 +53,14 @@ class Crossover:
         for i in range(length):
             mask[(start + i) % n] = True
             
-        c1 = np.where(mask, p2.genome, p1.genome)
-        c2 = np.where(mask, p1.genome, p2.genome)
+        c1 = np.concatenate((np.where(mask, p2.genome[:n], p1.genome[:n]), p1.genome[n:]), axis=0)
+        c2 = np.concatenate((np.where(mask, p1.genome[:n], p2.genome[:n]), p2.genome[n:]), axis=0)
         
         return Individual(c1), Individual(c2)
     
     @staticmethod
     def adaptive_layer_spatial(p1: Individual, p2: Individual) -> Tuple[Individual, Individual]:
-        n = p1.genome.shape[0]
+        n = min(p1.genome.shape[0], p2.genome.shape[0])
         if n < 1:
             return Individual(p1.genome.copy()), Individual(p2.genome.copy())
         focal_point = np.random.rand()
@@ -71,7 +71,8 @@ class Crossover:
         swap_probs = np.exp(-0.5 * (dists ** 2)).reshape((-1,) + (1,) * (p1.genome.ndim - 1))
         
         mask = np.random.rand(*swap_probs.shape) < swap_probs
-        c1 = np.where(mask, p2.genome, p1.genome)
-        c2 = np.where(mask, p1.genome, p2.genome)
+        
+        c1 = np.concatenate((np.where(mask, p2.genome[:n], p1.genome[:n]), p1.genome[n:]), axis=0)
+        c2 = np.concatenate((np.where(mask, p1.genome[:n], p2.genome[:n]), p2.genome[n:]), axis=0)
                 
         return Individual(c1), Individual(c2)
