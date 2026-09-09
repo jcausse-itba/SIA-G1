@@ -19,7 +19,7 @@ IMAGE_PATH = "figures/starry-night.png"
 OUTPUT_DIR = Path("optuna_outputs")
 
 MAX_TRIALS         = 100000 
-TIME_PER_TRIAL_SEC = 60       # Limit GA execution to 1 minute per iteration
+TIME_PER_TRIAL_SEC = 60*2.5       # Limit GA execution to 1 minute per iteration
 
 stop_optimization = False
 thread_running = True
