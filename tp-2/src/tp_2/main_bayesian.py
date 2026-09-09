@@ -82,7 +82,8 @@ def objective(trial: optuna.Trial) -> float:
     num_triangles = trial.suggest_int("num_triangles", 30, 100)
     crossover_prob = trial.suggest_float("crossover_prob", 0.1, 1.0)
     mutation_prob = trial.suggest_float("mutation_prob", 0.01, 0.1)
-    add_triangle_prob = trial.suggest_float("add_triangle_prob", 0.0, 0.05)
+    add_tri_prob = trial.suggest_float("add_tri_prob", 0.0, 0.05)
+    rm_tri_prob = trial.suggest_float("rm_tri_prob", 0.0, 0.05)
     p_tri = trial.suggest_float("p_tri", 0.1, 0.9)
     p_comp = trial.suggest_float("p_comp", 0.01, 0.5)
     
@@ -98,7 +99,8 @@ def objective(trial: optuna.Trial) -> float:
         "children_size": pop_size,
         "crossover_prob": crossover_prob,
         "mutation_prob": mutation_prob,
-        "add_triangle_prob": add_triangle_prob,
+        "add_tri_prob": add_tri_prob,
+        "rm_tri_prob": rm_tri_prob,
         "p_tri": p_tri,
         "p_comp": p_comp,
         "elitism": elitism,
@@ -163,7 +165,8 @@ def main():
         "num_triangles": 50,
         "crossover_prob": 0.85,
         "mutation_prob": 0.20,
-        "add_triangle_prob": 0.01,
+        "add_tri_prob": 0.01,
+        "rm_tri_prob": 0.005,
         "p_tri": 0.30,
         "p_comp": 0.20,
         "funsearch_temperature": 1.0,
