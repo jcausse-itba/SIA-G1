@@ -68,10 +68,10 @@ class GAEngine:
         children_size  = cfg.get("children_size",  pop_size)
         crossover_prob = cfg.get("crossover_prob",  0.8)
         mutation_prob  = cfg.get("mutation_prob",   0.1)
-        add_tri_prob   = cfg.get("add_triangle_prob", 0.014136)
-        rm_tri_prob    = cfg.get("add_triangle_prob", 0.005)
-        p_tri          = cfg.get("p_tri",           0.193399)
-        p_comp         = cfg.get("p_comp",          0.054537)
+        add_tri_prob   = cfg.get("rm_tri_prob", 0.041432)
+        rm_tri_prob    = cfg.get("rm_tri_prob", 0.028916)
+        p_tri          = cfg.get("p_tri",           0.107201)
+        p_comp         = cfg.get("p_comp",          0.014158)
         max_gen        = cfg.get("max_generations", 1000)
         output_path    = cfg.get("output_path",     "output.png")
         save_interval  = cfg.get("save_interval",   100)
@@ -82,7 +82,7 @@ class GAEngine:
         surv_method    = cfg.get("survival_selection","elite")
         cross_method   = cfg.get("crossover",       "two_point")
         mut_method     = cfg.get("mutation",        "non_uniform")
-        elitism        = cfg.get("elitism",          3)
+        elitism        = cfg.get("elitism",          85)
 
         if save_frames:
             Path(frames_dir).mkdir(parents=True, exist_ok=True)
