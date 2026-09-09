@@ -70,9 +70,10 @@ class GAEngine:
         children_size  = cfg.get("children_size",  pop_size)
         crossover_prob = cfg.get("crossover_prob",  0.8)
         mutation_prob  = cfg.get("mutation_prob",   0.1)
-        add_triangle_prob = cfg.get("add_triangle_prob", 0.01)
-        p_tri          = cfg.get("p_tri",           0.10356780876524548)
-        p_comp         = cfg.get("p_comp",          0.1107160259183529)
+        add_tri_prob   = cfg.get("add_triangle_prob", 0.014136)
+        rm_tri_prob    = cfg.get("add_triangle_prob", 0.005)
+        p_tri          = cfg.get("p_tri",           0.193399)
+        p_comp         = cfg.get("p_comp",          0.054537)
         max_gen        = cfg.get("max_generations", 1000)
         output_path    = cfg.get("output_path",     "output.png")
         save_interval  = cfg.get("save_interval",   100)
@@ -108,19 +109,6 @@ class GAEngine:
 
         while True:
             generation += 1
-            
-            if random.random() < add_triangle_prob:
-                num_triangles += 1
-                for ind in population + [best]:
-                    new_tri = np.array([[
-                        random.random(), random.random(), random.random(),
-                        random.random(), random.random(), random.random(),
-                        random.uniform(0.0, 360.0), random.uniform(0.0, 130.0),
-                        random.uniform(0.0, 100.0), random.uniform(0.05, 1.0)
-                    ]], dtype=np.float32)
-                    ind.genome = np.vstack([ind.genome, new_tri])
-                    ind.fitness = None
-                self.evaluator.evaluate(population + [best])
 
             best_fitness = best.fitness if best.fitness is not None else 0.0
             stop, reason = self.stopping.should_stop(generation, best_fitness)
@@ -154,6 +142,22 @@ class GAEngine:
             children = children[:children_size]
 
             for i, child in enumerate(children):
+                if random.random() < add_tri_prob:
+                    new_tri = np.array([[
+                        random.random(), random.random(), random.random(),
+                        random.random(), random.random(), random.random(),
+                        random.uniform(0.0, 360.0), random.uniform(0.0, 130.0),
+                        random.uniform(0.0, 100.0), random.uniform(0.05, 1.0)
+                    ]], dtype=np.float32)
+                    child.genome = np.vstack([child.genome, new_tri])
+                    child.fitness = None
+
+                if random.random() < rm_tri_prob:
+                    if child.genome.shape[0] > 1:
+                        remove_idx = random.randint(0, child.genome.shape[0] - 1)
+                        child.genome = np.delete(child.genome, remove_idx, axis=0)
+                        child.fitness = None
+
                 children[i] = Mutation.apply(
                     child,
                     p_ind=mutation_prob,
