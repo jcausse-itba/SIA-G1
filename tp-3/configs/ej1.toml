@@ -1,0 +1,28 @@
+[data]
+dataset_path = "./data/transactions.csv"
+test_dataset_path = ""  
+
+[model]
+model_type = "simple_non_linear"  # Opción: "simple_linear", "simple_non_linear"
+activation = "tanh"               # Opciones: "linear", "sigmoid", "tanh", "relu"
+beta = 1.0
+
+[training]
+learning_rate = 0.001
+optimizer = "sgd"                 # Opciones: "sgd", "momentum", "adam"
+momentum_beta = 0.9
+batch_size = 64
+
+[stopping]
+max_epochs = 2000
+target_error = 0.001
+target_accuracy = 0.99
+
+[generalization]
+split_ratio = 0.8                 # 80% entrenamiento, 20% validación
+k_folds = 5
+threshold = 0.5                   # Umbral de detección recomendado para el cliente
+
+[persistence]
+save_model_path = "./models/ej1_model.json"
+load_model_path = ""

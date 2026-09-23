@@ -1,0 +1,29 @@
+[data]
+dataset_path = "./data/digits.csv"
+test_dataset_path = "./data/digits_test.csv"
+
+[model]
+model_type = "multilayer"
+architecture = [784, 64, 32, 10]  # Capa de entrada (ej. 28x28px = 784), ocultas y salida (10 clases)
+activation = "sigmoid"
+beta = 1.0
+
+[training]
+learning_rate = 0.05
+optimizer = "adam"
+momentum_beta = 0.9
+batch_size = 32
+
+[stopping]
+max_epochs = 500
+target_error = 0.0001
+target_accuracy = 0.98
+
+[generalization]
+split_ratio = 0.8
+k_folds = 5
+threshold = 0.5
+
+[persistence]
+save_model_path = "./models/ej2_mlp.json"
+load_model_path = ""
