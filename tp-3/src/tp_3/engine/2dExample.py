@@ -4,6 +4,8 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from activation_functions.identity import Identity
+from activation_functions.relu import ReLU
+from loss_functions.mse import MeanSquaredError
 from models.mlp import MLP  # Imports the MLP class provided in your codebase
 
 def target_function(x1: np.ndarray, x2: np.ndarray) -> np.ndarray:
@@ -32,8 +34,10 @@ if __name__ == "__main__":
 
     # 3. Build the MLP Architecture
     network = MLP(
-        layer_sizes=[2, 64, 64, 32, 1], 
-        output_activation=Identity()
+        layer_sizes=[2, 64, 64, 32, 1],
+        input_activation=ReLU(),
+        output_activation=Identity(),
+        loss_function=MeanSquaredError()
     )
 
     # 4. Train incrementally across non-linear milestones (~50 frames, dense at start)

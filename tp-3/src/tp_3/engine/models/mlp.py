@@ -1,17 +1,16 @@
 import numpy as np
 from numpy.typing import NDArray
 from layer import Layer
-from activation_functions.relu import ReLU
 from activation_functions.base_activation import ActivationFunction
-from loss_functions.mse import MeanSquaredError
 from optimizers.adam import Adam
 
 class MLP:
-    def __init__(self, layer_sizes: list[int], output_activation: ActivationFunction = None):
+    def __init__(self, layer_sizes: list[int], input_activation: ActivationFunction, output_activation: ActivationFunction, loss_function):
         """
-        Initializes an MLP given layer dimensions (e.g. [4, 8, 16, 32, 8, 4]).
+        Initializes an MLP given layer dimensions.
         """
         self.layers: list[Layer] = []
+        self.loss_fn = loss_function
         
         for i in range(len(layer_sizes) - 1):
             in_dim = layer_sizes[i]
@@ -22,7 +21,7 @@ class MLP:
             if is_last and output_activation is not None:
                 act = output_activation
             else:
-                act = ReLU()
+                act = input_activation
 
             self.layers.append(Layer(in_dimm=in_dim, out_dimm=out_dim, activation_function=act))
 
@@ -53,8 +52,6 @@ class MLP:
         lr: float = 0.001, 
         print_every: int = 100
     ):
-        """Trains the network using MSE loss and Adam optimizer."""
-        loss_fn = MeanSquaredError()
 
         # Each weight matrix and bias vector MUST have its own Adam optimizer instance 
         # to correctly preserve moment states (m and v).
@@ -66,8 +63,8 @@ class MLP:
             y_pred = self.forward(X)
 
             # 2. Calculate Loss & Initial Gradient
-            loss = loss_fn.compute(y_pred, y)
-            loss_grad = loss_fn.gradient(y_pred, y)
+            loss = self.loss_fn.compute(y_pred, y)
+            loss_grad =  self.loss_fn.gradient(y_pred, y)
 
             # 3. Backpropagation
             grads = self.backward(loss_grad)
