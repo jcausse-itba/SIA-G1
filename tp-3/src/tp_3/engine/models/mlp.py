@@ -2,15 +2,17 @@ import numpy as np
 from numpy.typing import NDArray
 from layer import Layer
 from activation_functions.base_activation import ActivationFunction
-from optimizers.adam import Adam
+from optimizers.base import Optimizer
+from loss_functions.base import Loss
 
 class MLP:
-    def __init__(self, layer_sizes: list[int], input_activation: ActivationFunction, output_activation: ActivationFunction, loss_function):
+    def __init__(self, layer_sizes: list[int], input_activation: ActivationFunction, output_activation: ActivationFunction, loss_function: Loss, optimizer: Optimizer):
         """
         Initializes an MLP given layer dimensions.
         """
         self.layers: list[Layer] = []
-        self.loss_fn = loss_function
+        self.loss_fn: Loss = loss_function
+        self.optimizer: Optimizer = optimizer
         
         for i in range(len(layer_sizes) - 1):
             in_dim = layer_sizes[i]
@@ -53,10 +55,10 @@ class MLP:
         print_every: int = 100
     ):
 
-        # Each weight matrix and bias vector MUST have its own Adam optimizer instance 
+        # Each weight matrix and bias vector MUST have its own  optimizer instance 
         # to correctly preserve moment states (m and v).
-        optimizers_W = [Adam(lr=lr) for _ in self.layers]
-        optimizers_b = [Adam(lr=lr) for _ in self.layers]
+        optimizers_W = [self.optimizer(lr=lr) for _ in self.layers]
+        optimizers_b = [self.optimizer(lr=lr) for _ in self.layers]
 
         for epoch in range(1, epochs + 1):
             # 1. Forward Pass
@@ -69,7 +71,7 @@ class MLP:
             # 3. Backpropagation
             grads = self.backward(loss_grad)
 
-            # 4. Update Parameters with Adam
+            # 4. Update Parameters with optimizer
             for i, layer in enumerate(self.layers):
                 grad_W, grad_b = grads[i]
                 layer.W = optimizers_W[i].update(layer.W, grad_W)
