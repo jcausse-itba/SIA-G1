@@ -1,4 +1,3 @@
-from abc import ABC, abstractmethod
 import numpy as np
 from numpy.typing import NDArray
 from optimizers.base import Optimizer
@@ -17,27 +16,21 @@ class Adam(Optimizer):
 
     def __init__(
         self,
-        lr: np.float16 = np.float16(0.001),
-        beta1: np.float16 = np.float16(0.9),
-        beta2: np.float16 = np.float16(0.999),
-        epsilon: np.float16 = np.float16(1e-8),
+        lr: float = 0.001,
+        beta1: float = 0.9,
+        beta2: float = 0.999,
+        epsilon: float = 1e-8,
     ):
-        """
-        :param lr: Learning rate (α).
-        :param beta1: Exponential decay rate for first moment vector (β1).
-        :param beta2: Exponential decay rate for second moment vector (β2).
-        :param epsilon: Small constant to prevent division by zero (ε).
-        """
-        self.lr = np.float64(lr)
-        self.beta1 = np.float64(beta1)
-        self.beta2 = np.float64(beta2)
-        self.epsilon = np.float64(epsilon)
+        self.lr = float(lr)
+        self.beta1 = float(beta1)
+        self.beta2 = float(beta2)
+        self.epsilon = float(epsilon)
 
         self.m: NDArray[np.float64] | None = None
         self.v: NDArray[np.float64] | None = None
         self.t: int = 0
 
-    def update(self, weights: NDArray[np.float16], gradients: NDArray[np.float16]) -> NDArray[np.float16]:
+    def update(self, weights: NDArray, gradients: NDArray) -> NDArray:
         if self.m is None or self.v is None:
             self.m = np.zeros_like(weights, dtype=np.float64)
             self.v = np.zeros_like(weights, dtype=np.float64)
@@ -45,13 +38,14 @@ class Adam(Optimizer):
         self.t += 1
         g_t = gradients.astype(np.float64)
 
-        # Update biased first and second moment estimates
-        self.m = self.beta1 * self.m + (np.float64(1.0) - self.beta1) * g_t
-        self.v = self.beta2 * self.v + (np.float64(1.0) - self.beta2) * (g_t ** 2)
+        # Update biased moment estimates
+        self.m = self.beta1 * self.m + (1.0 - self.beta1) * g_t
+        self.v = self.beta2 * self.v + (1.0 - self.beta2) * (g_t ** 2)
 
         # Compute bias-corrected estimates
-        m_hat = self.m / (np.float64(1.0) - self.beta1 ** self.t)
-        v_hat = self.v / (np.float64(1.0) - self.beta2 ** self.t)
+        m_hat = self.m / (1.0 - self.beta1 ** self.t)
+        v_hat = self.v / (1.0 - self.beta2 ** self.t)
 
-        # Update parameter vector
-        return (weights.astype(np.float64) - self.lr * m_hat / (np.sqrt(v_hat) + self.epsilon)).astype(np.float16)
+        # Parameter update
+        updated_weights = weights.astype(np.float64) - self.lr * m_hat / (np.sqrt(v_hat) + self.epsilon)
+        return updated_weights.astype(weights.dtype)

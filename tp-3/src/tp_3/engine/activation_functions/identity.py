@@ -4,8 +4,8 @@ from activation_functions.base_activation import ActivationFunction
 
 class Identity(ActivationFunction):
 
-    def compute(self, value: NDArray[np.float16]) -> NDArray[np.float16]:
-        return value.astype(np.float16, copy=False)
+    def compute(self, value: NDArray) -> NDArray:
+        return value
 
-    def gradient(self, value: NDArray[np.float16]) -> NDArray[np.float16]:
-        return np.ones_like(value, dtype=np.float16)
+    def gradient(self, value: NDArray) -> NDArray:
+        return np.ones_like(value)
