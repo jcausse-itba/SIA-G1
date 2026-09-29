@@ -15,6 +15,7 @@ dependencies = [
     "matplotlib>=3.11.2",
     "numpy>=2.5.3",
     "pandas>=3.0.6",
+    "plotly>=7.1.0",
     "tabulate>=0.10.0",
 ]
 
