@@ -3,16 +3,23 @@
 ## Ejecutar test ejercicio de validacion
 uv run python -m unittest discover -s tests -p "test_perceptron_scenarios.py"
 
-## Ejecutar analyze fraud ranges EJ1
+## Ejecutar ejercicio 1: entrenamiento y predicciones
+uv run python -m tp_3 -c configs/ej1.toml
+
+Genera `mlp_training_results.html` con la curva de loss y las predicciones del conjunto de validacion.
+
+## Ejecutar estadísticas y correlaciones de fraude
 uv run python analyze_fraud_ranges.py
+
+Genera `fraud_dataset_ranges.html` con los rangos y correlaciones de las columnas.
 
 ## Ejecutar usando un archivo de configuración
 
-uv run python -m tp_3 -c config/ej1.toml
+uv run python -m tp_3 -c configs/ej1.toml
 
 ## Sobrescribir parámetros del archivo de configuración desde CLI
 
-uv run python -m tp_3 -c config/ej1.toml --learning-rate 0.05 --max-epochs 2000
+uv run python -m tp_3 -c configs/ej1.toml --learning-rate 0.05 --max-epochs 2000
 
 ## Ejecutar pasando únicamente flags de línea de comandos
 

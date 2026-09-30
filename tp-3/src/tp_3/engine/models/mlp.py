@@ -53,12 +53,13 @@ class MLP:
         epochs: int = 1000, 
         lr: float = 0.001, 
         print_every: int = 100
-    ):
+    ) -> list[float]:
 
         # Each weight matrix and bias vector MUST have its own  optimizer instance 
         # to correctly preserve moment states (m and v).
         optimizers_W = [self.optimizer(lr=lr) for _ in self.layers]
         optimizers_b = [self.optimizer(lr=lr) for _ in self.layers]
+        history = []
 
         for epoch in range(1, epochs + 1):
             # 1. Forward Pass
@@ -66,6 +67,7 @@ class MLP:
 
             # 2. Calculate Loss & Initial Gradient
             loss = self.loss_fn.compute(y_pred, y)
+            history.append(float(loss))
             loss_grad =  self.loss_fn.gradient(y_pred, y)
 
             # 3. Backpropagation
@@ -79,3 +81,5 @@ class MLP:
 
             if epoch % print_every == 0 or epoch == 1:
                 print(f"Epoch {epoch:4d}/{epochs} | Loss: {loss:.6f}")
+
+        return history

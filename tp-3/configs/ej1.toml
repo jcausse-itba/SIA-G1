@@ -1,10 +1,10 @@
 [data]
-dataset_path = "./data/transactions.csv"
+dataset_path = "./data and documentation/fraud_dataset.csv"
 test_dataset_path = ""  
 
 [model]
-model_type = "simple_non_linear"  # Opción: "simple_linear", "simple_non_linear"
-activation = "tanh"               # Opciones: "linear", "sigmoid", "tanh", "relu"
+model_type = "simple_linear"      # Opción: "simple_linear", "simple_non_linear"
+activation = "linear"             # Opciones: "linear", "sigmoid", "tanh", "relu"
 beta = 1.0
 
 [training]
@@ -24,5 +24,5 @@ k_folds = 5
 threshold = 0.5                   # Umbral de detección recomendado para el cliente
 
 [persistence]
-save_model_path = "./models/ej1_model.json"
+save_model_path = "./data and documentation/fraud_probability_model.pkl"
 load_model_path = ""
