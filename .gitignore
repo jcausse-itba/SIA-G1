@@ -3,6 +3,7 @@
 *.sok
 *.html
 *.csv
+/tp-3/data and documentation/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

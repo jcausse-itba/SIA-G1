@@ -1,9 +1,9 @@
 import numpy as np
 from numpy.typing import NDArray
-from layer import Layer
-from activation_functions.base_activation import ActivationFunction
-from optimizers.base import Optimizer
-from loss_functions.base import Loss
+from ..layer import Layer
+from ..activation_functions.base_activation import ActivationFunction
+from ..optimizers.base import Optimizer
+from ..loss_functions.base import Loss
 
 class MLP:
     def __init__(self, layer_sizes: list[int], input_activation: ActivationFunction, output_activation: ActivationFunction, loss_function: Loss, optimizer: Optimizer):

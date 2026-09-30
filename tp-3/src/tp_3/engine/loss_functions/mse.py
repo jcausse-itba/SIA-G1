@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 import numpy as np
 from numpy.typing import NDArray
-from loss_functions.base import Loss
+from .base import Loss
 
 
 class MeanSquaredError(Loss):

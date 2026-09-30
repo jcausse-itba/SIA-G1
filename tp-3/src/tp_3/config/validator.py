@@ -4,8 +4,11 @@ from typing import Any, Dict
 def validate_config(cfg: Dict[str, Any]) -> None:
     """Validates the consistency of the input configuration data for TP3."""
     # Verificación de archivos de dataset
-    if not os.path.exists(cfg["dataset_path"]):
-        raise FileNotFoundError(f"Dataset file not found at: {cfg['dataset_path']}")
+    dataset_path = cfg.get("dataset_path")
+    if not dataset_path:
+        raise ValueError("A dataset path is required (--dataset-path or dataset_path in the config file).")
+    if not os.path.exists(dataset_path):
+        raise FileNotFoundError(f"Dataset file not found at: {dataset_path}")
     
     if cfg.get("test_dataset_path") and not os.path.exists(cfg["test_dataset_path"]):
         raise FileNotFoundError(f"Test dataset file not found at: {cfg['test_dataset_path']}")

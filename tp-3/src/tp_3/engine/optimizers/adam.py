@@ -1,6 +1,6 @@
 import numpy as np
 from numpy.typing import NDArray
-from optimizers.base import Optimizer
+from .base import Optimizer
 
 class Adam(Optimizer):
     """

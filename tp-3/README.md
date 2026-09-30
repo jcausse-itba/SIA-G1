@@ -1,5 +1,8 @@
 # TP 3: Perceptrón Simple y Multicapa
 
+## Ejecutar test ejercicio de validacion
+uv run python -m unittest discover -s tests -p "test_perceptron_scenarios.py"
+
 ## Ejecutar usando un archivo de configuración
 
 uv run python -m tp_3 -c config/ej1.toml

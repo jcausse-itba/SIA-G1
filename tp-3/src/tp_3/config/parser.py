@@ -12,7 +12,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # Data Parameters
     data = parser.add_argument_group("Dataset Parameters")
-    data.add_argument("-d", "--dataset-path", type=str, required=True, help="Path to the training dataset CSV")
+    data.add_argument("-d", "--dataset-path", type=str, default=None, help="Path to the training dataset CSV")
     data.add_argument("--test-dataset-path", type=str, default=None, help="Path to the testing dataset CSV (optional)")
 
     # Model Parameters

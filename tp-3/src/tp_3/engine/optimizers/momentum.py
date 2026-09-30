@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 import numpy as np
 from numpy.typing import NDArray
-from optimizers.base import Optimizer
+from .base import Optimizer
 
 class Momentum(Optimizer):
     """
