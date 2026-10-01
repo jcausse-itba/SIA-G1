@@ -11,14 +11,29 @@ import pandas as pd
 from tp_3.config.loader import load_and_merge_config
 from tp_3.config.parser import build_parser
 from tp_3.config.validator import validate_config
-from tp_3.engine.activation_functions.identity import Identity
-from tp_3.engine.activation_functions.relu import ReLU
-from tp_3.engine.activation_functions.standard import Sigmoid, Step, Tanh
-from tp_3.engine.loss_functions.mse import MeanSquaredError
-from tp_3.engine.models.mlp import MLP
-from tp_3.engine.optimizers.adam import Adam
-from tp_3.engine.optimizers.momentum import Momentum
-from tp_3.engine.optimizers.sgd import SGD
+import importlib
+import inspect
+import pkgutil
+
+
+def resolve_class(package_path: str, name: str):
+    """Dynamically locates and loads a class from a package by name/alias."""
+    pkg = importlib.import_module(package_path)
+    target = name.lower().replace("_", "")
+    for _, modname, _ in pkgutil.walk_packages(pkg.__path__, pkg.__name__ + "."):
+        mod = importlib.import_module(modname)
+        for cls_name, cls in inspect.getmembers(mod, inspect.isclass):
+            if cls_name.lower() == target or (target == "linear" and cls_name == "Identity"):
+                return cls
+    raise ValueError(f'Could not resolve class "{name}" in "{package_path}"')
+
+
+def instantiate_with_reflection(cls, config: dict):
+    """Instantiates a class by dynamically matching constructor parameters to config keys."""
+    sig = inspect.signature(cls.__init__)
+    param_map = {"alpha": "momentum_beta"}
+    kwargs = {p: config[param_map.get(p, p)] for p in sig.parameters if param_map.get(p, p) in config}
+    return cls(**kwargs)
 from tp_3.training_report import write_training_report
 
 
@@ -93,39 +108,36 @@ def main() -> None:
 		train_inputs = (train_inputs - feature_mean) / feature_scale
 		test_inputs = (test_inputs - feature_mean) / feature_scale
 
-		activation_types = {
-			"step": Step,
-			"linear": Identity,
-			"sigmoid": partial(Sigmoid, beta=config["beta"]),
-			"tanh": partial(Tanh, beta=config["beta"]),
-			"relu": ReLU,
-		}
-		optimizer_types = {
-			"sgd": SGD,
-			"momentum": partial(Momentum, alpha=config["momentum_beta"]),
-			"adam": Adam,
-		}
-		configured_activation = activation_types[config["activation"]]()
-		if isinstance(configured_activation, Step):
+		make_act = lambda name: instantiate_with_reflection(
+			resolve_class("tp_3.engine.activation_functions", name), config
+		)
+		configured_activation = make_act(config["activation"])
+		if type(configured_activation).__name__ == "Step":
 			raise ValueError("Step activation has zero gradient and cannot be trained with MLP.fit().")
 
-		if config["model_type"] == "simple_linear":
-			hidden_activation = Identity()
-			output_activation = Identity()
-		elif config["model_type"] == "simple_non_linear":
-			hidden_activation = Identity()
-			output_activation = configured_activation
-		else:
-			hidden_activation = configured_activation
-			output_activation = configured_activation
+		is_simple = config["model_type"].startswith("simple") #TODO es redundante complejiza mucho logica, es mejor q si queres simple armes un mlp con arquitectura para q sea simple TODO: eliminar arg
+		hidden_activation = make_act("linear" if is_simple else config["activation"])
+		output_activation = make_act("linear" if config["model_type"] == "simple_linear" else config["activation"])
+
+		opt_cls = resolve_class("tp_3.engine.optimizers", config["optimizer"])
+		opt_sig = inspect.signature(opt_cls.__init__)
+		opt_kwargs = {
+			p: config[k]
+			for p, k in [("alpha", "momentum_beta")]
+			if p in opt_sig.parameters and k in config
+		}
+		optimizer_factory = partial(opt_cls, **opt_kwargs) if opt_kwargs else opt_cls
+
+		mlp_cls = resolve_class("tp_3.engine.models", "mlp") #TODO parametrizar
+		loss_cls = resolve_class("tp_3.engine.loss_functions", "meansquarederror") #TODO parametrizar
 
 		np.random.seed(42)
-		model = MLP(
+		model = mlp_cls(
 			layer_sizes,
 			hidden_activation,
 			output_activation,
-			MeanSquaredError(),
-			optimizer_types[config["optimizer"]],
+			loss_cls(),
+			optimizer_factory,
 		)
 		with contextlib.redirect_stdout(io.StringIO()):
 			loss_history = model.fit(
