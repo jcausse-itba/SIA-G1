@@ -39,7 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # Stopping Conditions
     stop = parser.add_argument_group("Stopping Conditions")
-    stop.add_argument("--max-epochs", type=int, default=1000, help="Maximum number of epochs")
+    stop.add_argument("--max-epochs", type=int, default=None, help="Maximum number of epochs")
     stop.add_argument("--target-error", type=float, default=1e-4, help="Target minimum error to stop training")
     stop.add_argument("--target-accuracy", type=float, default=0.98, help="Target accuracy to stop training")
 
