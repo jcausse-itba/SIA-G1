@@ -102,9 +102,19 @@ def main() -> None:
         train_inputs, test_inputs = inputs[train_indices], inputs[test_indices]
         train_outputs, test_outputs = outputs[train_indices], outputs[test_indices]
 
-        feature_mean = train_inputs.mean(axis=0)
-        feature_scale = train_inputs.std(axis=0)
-        feature_scale[feature_scale == 0] = 1.0
+        scaling_method = config.get("scaling", "standardization")
+        if scaling_method == "minmax":
+            feature_mean = train_inputs.min(axis=0)
+            feature_scale = train_inputs.max(axis=0) - feature_mean
+            feature_scale[feature_scale == 0] = 1.0
+        elif scaling_method in ("standardization", "standard"):
+            feature_mean = train_inputs.mean(axis=0)
+            feature_scale = train_inputs.std(axis=0)
+            feature_scale[feature_scale == 0] = 1.0
+        else:
+            feature_mean = np.zeros(train_inputs.shape[1], dtype=np.float64)
+            feature_scale = np.ones(train_inputs.shape[1], dtype=np.float64)
+
         train_inputs = (train_inputs - feature_mean) / feature_scale
         test_inputs = (test_inputs - feature_mean) / feature_scale
 
@@ -181,6 +191,7 @@ def main() -> None:
                         "feature_columns": features.columns.tolist(),
                         "feature_mean": feature_mean,
                         "feature_scale": feature_scale,
+                        "scaling_method": scaling_method,
                         "target_column": target_column,
                     },
                     model_file,

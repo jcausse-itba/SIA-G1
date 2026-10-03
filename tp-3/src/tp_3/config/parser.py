@@ -14,6 +14,8 @@ def build_parser() -> argparse.ArgumentParser:
     data = parser.add_argument_group("Dataset Parameters")
     data.add_argument("-d", "--dataset-path", type=str, default=None, help="Path to the training dataset CSV")
     data.add_argument("--test-dataset-path", type=str, default=None, help="Path to the testing dataset CSV (optional)")
+    data.add_argument("--scaling", type=str, default="standardization", choices=["none", "standardization", "minmax"],
+                      help="Feature scaling strategy: 'none', 'standardization' (Z-score), or 'minmax'")
 
     # Model Parameters
     model = parser.add_argument_group("Model Architecture")
