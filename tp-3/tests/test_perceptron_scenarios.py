@@ -6,7 +6,8 @@ import numpy as np
 
 from tp_3.engine.activation_functions.identity import Identity
 from tp_3.engine.activation_functions.relu import ReLU
-from tp_3.engine.activation_functions.standard import Step, Tanh
+from tp_3.engine.activation_functions.step import Step
+from tp_3.engine.activation_functions.tanh import Tanh
 from tp_3.engine.layer import Layer
 from tp_3.engine.loss_functions.mse import MeanSquaredError
 from tp_3.engine.models.mlp import MLP
@@ -63,6 +64,35 @@ class PerceptronScenarioTests(unittest.TestCase):
         self.fit_quietly(model, inputs, expected, epochs=2000, learning_rate=0.05)
 
         np.testing.assert_allclose(model.forward(inputs), expected, atol=0.05)
+
+    def test_mlp_fit_uses_minibatches_and_records_learning_curve(self):
+        class CountingSGD(SGD):
+            update_count = 0
+
+            def update(self, params, gradients):
+                type(self).update_count += 1
+                return super().update(params, gradients)
+
+        inputs = np.arange(5.0).reshape(-1, 1)
+        targets = inputs.copy()
+        CountingSGD.update_count = 0
+        model = MLP([1, 1], Identity(), Identity(), MeanSquaredError(), CountingSGD)
+        initial_loss = model.loss_fn.compute(model.forward(inputs), targets)
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            history = model.fit(
+                inputs,
+                targets,
+                epochs=1,
+                lr=0.01,
+                print_every=2,
+                batch_size=2,
+            )
+
+        self.assertEqual(CountingSGD.update_count, 6)
+        self.assertEqual(history[0], initial_loss)
+        self.assertEqual(len(history), 2)
+        self.assertEqual(history[-1], model.loss_fn.compute(model.forward(inputs), targets))
 
     def test_mlp_xor_for_requested_architectures(self):
         architectures = ([2, 2, 1], [2, 3, 2, 1])

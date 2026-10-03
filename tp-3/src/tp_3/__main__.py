@@ -200,6 +200,7 @@ def main() -> None:
                     epochs=config["max_epochs"],
                     lr=config["learning_rate"],
                     print_every=max(1, config["max_epochs"] // 10),
+                    batch_size=config["batch_size"],
                 )
 
             predictions = model.forward(test_inputs)

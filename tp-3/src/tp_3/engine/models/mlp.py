@@ -52,34 +52,41 @@ class MLP:
         y: NDArray, 
         epochs: int = 1000, 
         lr: float = 0.001, 
-        print_every: int = 100
+        print_every: int = 100,
+        batch_size: int | None = None,
     ) -> list[float]:
+        if len(X) == 0:
+            raise ValueError("Training data must contain at least one sample.")
+        if batch_size is not None and batch_size <= 0:
+            raise ValueError("Batch size must be greater than zero.")
 
         # Each weight matrix and bias vector MUST have its own  optimizer instance 
         # to correctly preserve moment states (m and v).
         optimizers_W = [self.optimizer(lr=lr) for _ in self.layers]
         optimizers_b = [self.optimizer(lr=lr) for _ in self.layers]
-        history = []
+        history = [float(self.loss_fn.compute(self.forward(X), y))]
 
         for epoch in range(1, epochs + 1):
-            # 1. Forward Pass
-            y_pred = self.forward(X)
+            indices = np.random.permutation(len(X))
+            current_batch_size = batch_size or len(X)
+            for start in range(0, len(X), current_batch_size):
+                batch_indices = indices[start:start + current_batch_size]
+                batch_X = X[batch_indices]
+                batch_y = y[batch_indices]
 
-            # 2. Calculate Loss & Initial Gradient
-            loss = self.loss_fn.compute(y_pred, y)
-            history.append(float(loss))
-            loss_grad =  self.loss_fn.gradient(y_pred, y)
+                y_pred = self.forward(batch_X)
+                loss_grad = self.loss_fn.gradient(y_pred, batch_y)
+                grads = self.backward(loss_grad)
 
-            # 3. Backpropagation
-            grads = self.backward(loss_grad)
+                for i, layer in enumerate(self.layers):
+                    grad_W, grad_b = grads[i]
+                    layer.W = optimizers_W[i].update(layer.W, grad_W)
+                    layer.b = optimizers_b[i].update(layer.b, grad_b)
 
-            # 4. Update Parameters with optimizer
-            for i, layer in enumerate(self.layers):
-                grad_W, grad_b = grads[i]
-                layer.W = optimizers_W[i].update(layer.W, grad_W)
-                layer.b = optimizers_b[i].update(layer.b, grad_b)
+            epoch_loss = float(self.loss_fn.compute(self.forward(X), y))
+            history.append(epoch_loss)
 
             if epoch % print_every == 0 or epoch == 1:
-                print(f"Epoch {epoch:4d}/{epochs} | Loss: {loss:.6f}")
+                print(f"Epoch {epoch:4d}/{epochs} | Loss: {epoch_loss:.6f}")
 
         return history

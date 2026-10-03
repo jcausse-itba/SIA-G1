@@ -14,18 +14,20 @@ def write_training_report(
     is_classification: bool = False,
 ) -> None:
     figure = make_subplots(
-        rows=1,
-        cols=2,
-        subplot_titles=("Training loss", "Held-out predictions"),
-        horizontal_spacing=0.12,
+        rows=2,
+        cols=1,
+        subplot_titles=("Learning curve: training loss by epoch", "Held-out predictions"),
+        vertical_spacing=0.18,
     )
     figure.add_trace(
         go.Scatter(
-            x=np.arange(1, len(loss_history) + 1),
+            x=np.arange(len(loss_history)),
             y=loss_history,
-            mode="lines",
+            mode="lines+markers",
             name="Training MSE",
             line={"color": "#278276", "width": 2},
+            marker={"size": 5},
+            hovertemplate="Epoch %{x}<br>Training MSE %{y:.6g}<extra></extra>",
         ),
         row=1,
         col=1,
@@ -39,8 +41,8 @@ def write_training_report(
                 mode="markers",
                 name="Actual class",
             ),
-            row=1,
-            col=2,
+            row=2,
+            col=1,
         )
         figure.add_trace(
             go.Scatter(
@@ -49,11 +51,11 @@ def write_training_report(
                 mode="markers",
                 name="Predicted class",
             ),
-            row=1,
-            col=2,
+            row=2,
+            col=1,
         )
-        figure.update_xaxes(title_text="Test sample", row=1, col=2)
-        figure.update_yaxes(title_text="Class index", row=1, col=2)
+        figure.update_xaxes(title_text="Test sample", row=2, col=1)
+        figure.update_yaxes(title_text="Class index", row=2, col=1)
     else:
         figure.add_trace(
             go.Scatter(
@@ -64,8 +66,8 @@ def write_training_report(
                 marker_color="#278276",
                 name="Held-out predictions",
             ),
-            row=1,
-            col=2,
+            row=2,
+            col=1,
         )
         lower = float(min(actual.min(), predicted.min()))
         upper = float(max(actual.max(), predicted.max()))
@@ -77,18 +79,18 @@ def write_training_report(
                 name="Perfect prediction",
                 line={"dash": "dash", "color": "#bd4b45"},
             ),
-            row=1,
-            col=2,
+            row=2,
+            col=1,
         )
-        figure.update_xaxes(title_text="Actual value", row=1, col=2)
-        figure.update_yaxes(title_text="Predicted value", row=1, col=2)
+        figure.update_xaxes(title_text="Actual value", row=2, col=1)
+        figure.update_yaxes(title_text="Predicted value", row=2, col=1)
 
     figure.update_xaxes(title_text="Epoch", row=1, col=1)
     figure.update_yaxes(title_text="Mean squared error", row=1, col=1)
     figure.update_layout(
         title_text="MLP Training Results",
         template="plotly_white",
-        height=520,
+        height=850,
     )
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
