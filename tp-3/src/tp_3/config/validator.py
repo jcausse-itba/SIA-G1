@@ -29,7 +29,7 @@ def validate_config(cfg: Dict[str, Any]) -> None:
     if cfg["max_epochs"] <= 0:
         raise ValueError("Max epochs (--max-epochs) must be a positive integer.")
         
-    if cfg["batch_size"] <= 0:
+    if cfg["batch_size"] and cfg["batch_size"] <= 0:
         raise ValueError("Batch size (--batch-size) must be greater than zero.")
 
     if not (0.0 < cfg["split_ratio"] < 1.0):

@@ -35,7 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--optimizer", type=str, default="sgd", choices=["sgd", "momentum", "adam"],
                        help="Optimization algorithm")
     train.add_argument("--momentum-beta", type=float, default=0.9, help="Beta coefficient for Momentum")
-    train.add_argument("--batch-size", type=int, default=32, help="Batch size for training")
+    train.add_argument("--batch-size", type=int, default=None, help="Batch size for training")
 
     # Stopping Conditions
     stop = parser.add_argument_group("Stopping Conditions")
