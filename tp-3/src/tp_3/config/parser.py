@@ -1,5 +1,13 @@
 import argparse
 
+def nullable_int(val: str) -> int | None:
+    if val.lower() in ("none", "null"):
+        return None
+    try:
+        return int(val)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"Invalid int value: '{val}'")
+
 def build_parser() -> argparse.ArgumentParser:
     """Builds and returns the argument parser for TP3: Perceptron & Multilayer Perceptron."""
     parser = argparse.ArgumentParser(
@@ -35,7 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--optimizer", type=str, default="sgd", choices=["sgd", "momentum", "adam"],
                        help="Optimization algorithm")
     train.add_argument("--momentum-beta", type=float, default=0.9, help="Beta coefficient for Momentum")
-    train.add_argument("--batch-size", type=int, default=None, help="Batch size for training")
+    train.add_argument("--batch-size", type=nullable_int, default=None, help="Batch size for training")
 
     # Stopping Conditions
     stop = parser.add_argument_group("Stopping Conditions")
