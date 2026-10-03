@@ -50,11 +50,12 @@ class MLP:
         self, 
         X: NDArray, 
         y: NDArray, 
+        batch_size: int | None,
         epochs: int = 1000, 
         lr: float = 0.001, 
         print_every: int = 100,
-        batch_size: int | None = None,
     ) -> list[float]:
+        batch_size = None
         if len(X) == 0:
             raise ValueError("Training data must contain at least one sample.")
         if batch_size is not None and batch_size <= 0:
@@ -64,17 +65,24 @@ class MLP:
         # to correctly preserve moment states (m and v).
         optimizers_W = [self.optimizer(lr=lr) for _ in self.layers]
         optimizers_b = [self.optimizer(lr=lr) for _ in self.layers]
-        history = [float(self.loss_fn.compute(self.forward(X), y))]
+        history = []
+        current_batch_size = batch_size or len(X)
+        is_full_batch = (current_batch_size == len(X))
 
         for epoch in range(1, epochs + 1):
-            indices = np.random.permutation(len(X))
-            current_batch_size = batch_size or len(X)
-            for start in range(0, len(X), current_batch_size):
-                batch_indices = indices[start:start + current_batch_size]
-                batch_X = X[batch_indices]
-                batch_y = y[batch_indices]
+            epoch_loss = 0.0
 
+            for start in range(0, len(X), current_batch_size):
+                if is_full_batch:
+                    batch_X, batch_y = X, y
+                else:
+                    batch_X = X[start:start + current_batch_size]
+                    batch_y = y[start:start + current_batch_size]
+
+                # Single forward pass per batch
                 y_pred = self.forward(batch_X)
+                epoch_loss += float(self.loss_fn.compute(y_pred, batch_y)) * len(batch_X)
+
                 loss_grad = self.loss_fn.gradient(y_pred, batch_y)
                 grads = self.backward(loss_grad)
 
@@ -83,7 +91,7 @@ class MLP:
                     layer.W = optimizers_W[i].update(layer.W, grad_W)
                     layer.b = optimizers_b[i].update(layer.b, grad_b)
 
-            epoch_loss = float(self.loss_fn.compute(self.forward(X), y))
+            epoch_loss /= len(X)
             history.append(epoch_loss)
 
             if epoch % print_every == 0 or epoch == 1:
