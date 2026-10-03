@@ -55,7 +55,6 @@ class MLP:
         lr: float = 0.001, 
         print_every: int = 100,
     ) -> list[float]:
-        batch_size = None
         if len(X) == 0:
             raise ValueError("Training data must contain at least one sample.")
         if batch_size is not None and batch_size <= 0:
