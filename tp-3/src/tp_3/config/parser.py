@@ -45,6 +45,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     # Generalization & Validation
     gen = parser.add_argument_group("Generalization Parameters")
+    gen.add_argument("--validation-method", type=str, default="split", choices=["split", "k_fold", "explicit"],
+                     help="Method for validation/testing: 'split', 'k_fold', or 'explicit'")
     gen.add_argument("--split-ratio", type=float, default=0.8, help="Train/Validation split ratio")
     gen.add_argument("--k-folds", type=int, default=5, help="Number of folds for Cross Validation")
     gen.add_argument("--threshold", type=float, default=0.5, help="Decision threshold for classification")

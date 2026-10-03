@@ -97,89 +97,142 @@ def main() -> None:
             order = np.argsort(frame["timestamp"].to_numpy(), kind="stable")
         else:
             order = np.random.default_rng(42).permutation(len(frame))
-        split_index = int(len(order) * config["split_ratio"])
-        train_indices, test_indices = order[:split_index], order[split_index:]
-        train_inputs, test_inputs = inputs[train_indices], inputs[test_indices]
-        train_outputs, test_outputs = outputs[train_indices], outputs[test_indices]
 
-        scaling_method = config.get("scaling", "standardization")
-        if scaling_method == "minmax":
-            feature_mean = train_inputs.min(axis=0)
-            feature_scale = train_inputs.max(axis=0) - feature_mean
-            feature_scale[feature_scale == 0] = 1.0
-        elif scaling_method in ("standardization", "standard"):
-            feature_mean = train_inputs.mean(axis=0)
-            feature_scale = train_inputs.std(axis=0)
-            feature_scale[feature_scale == 0] = 1.0
+        validation_method = config.get("validation_method", "split")
+        
+        if validation_method == "split":
+            split_index = int(len(order) * config["split_ratio"])
+            folds = [(order[:split_index], order[split_index:])]
+        elif validation_method == "k_fold":
+            fold_chunks = np.array_split(order, config["k_folds"])
+            folds = [
+                (np.concatenate([fold_chunks[j] for j in range(config["k_folds"]) if j != i]), fold_chunks[i])
+                for i in range(config["k_folds"])
+            ]
         else:
-            feature_mean = np.zeros(train_inputs.shape[1], dtype=np.float64)
-            feature_scale = np.ones(train_inputs.shape[1], dtype=np.float64)
+            folds = [(None, None)]  # Placeholder for explicit loading
 
-        train_inputs = (train_inputs - feature_mean) / feature_scale
-        test_inputs = (test_inputs - feature_mean) / feature_scale
+        all_metrics = []
+        for fold_idx, (train_indices, test_indices) in enumerate(folds):
+            if validation_method == "explicit":
+                train_inputs, train_outputs = inputs, outputs
+                
+                test_frame = pd.read_csv(
+                    config["test_dataset_path"],
+                    usecols=lambda column: column != "flagged_fraud",
+                )
+                test_targets = test_frame[target_column].to_numpy()
+                test_features = test_frame.drop(columns=[target_column])
+                if "image" in test_features.columns:
+                    test_image_values = test_features["image"].map(
+                        lambda value: np.asarray(
+                            value if isinstance(value, list) else ast.literal_eval(str(value)),
+                            dtype=np.float64,
+                        )
+                    )
+                    test_inputs = np.stack(test_image_values.to_numpy())
+                else:
+                    test_inputs = test_features.to_numpy(dtype=np.float64)
 
-        make_act = lambda name: instantiate_with_reflection(
-            resolve_class("tp_3.engine.activation_functions", name), config
-        )
-        configured_activation = make_act(config["activation"])
-        if type(configured_activation).__name__ == "Step":
-            raise ValueError("Step activation has zero gradient and cannot be trained with MLP.fit().")
+                if output_size == 1:
+                    test_outputs = test_targets.astype(np.float64).reshape(-1, 1)
+                else:
+                    try:
+                        test_class_ids = np.array([np.where(labels == val)[0][0] for val in test_targets])
+                    except IndexError:
+                        raise ValueError("Test dataset contains classes not present in the training dataset.")
+                    test_outputs = np.eye(output_size, dtype=np.float64)[test_class_ids]
+            else:
+                train_inputs, test_inputs = inputs[train_indices], inputs[test_indices]
+                train_outputs, test_outputs = outputs[train_indices], outputs[test_indices]
 
-        is_simple = config["model_type"].startswith("simple") #TODO es redundante complejiza mucho logica, es mejor q si queres simple armes un mlp con arquitectura para q sea simple TODO: eliminar arg
-        hidden_activation = make_act("linear" if is_simple else config["activation"])
-        output_activation = make_act("linear" if config["model_type"] == "simple_linear" else config["activation"])
+            scaling_method = config.get("scaling", "standardization")
+            if scaling_method == "minmax":
+                feature_mean = train_inputs.min(axis=0)
+                feature_scale = train_inputs.max(axis=0) - feature_mean
+                feature_scale[feature_scale == 0] = 1.0
+            elif scaling_method in ("standardization", "standard"):
+                feature_mean = train_inputs.mean(axis=0)
+                feature_scale = train_inputs.std(axis=0)
+                feature_scale[feature_scale == 0] = 1.0
+            else:
+                feature_mean = np.zeros(train_inputs.shape[1], dtype=np.float64)
+                feature_scale = np.ones(train_inputs.shape[1], dtype=np.float64)
 
-        opt_cls = resolve_class("tp_3.engine.optimizers", config["optimizer"])
-        opt_sig = inspect.signature(opt_cls.__init__)
-        opt_kwargs = {
-            p: config[k]
-            for p, k in [("alpha", "momentum_beta")]
-            if p in opt_sig.parameters and k in config
-        }
-        optimizer_factory = partial(opt_cls, **opt_kwargs) if opt_kwargs else opt_cls
+            train_inputs = (train_inputs - feature_mean) / feature_scale
+            test_inputs = (test_inputs - feature_mean) / feature_scale
 
-        mlp_cls = resolve_class("tp_3.engine.models", "mlp") #TODO parametrizar
-        loss_cls = resolve_class("tp_3.engine.loss_functions", "meansquarederror") #TODO parametrizar
-
-        np.random.seed(42)
-        model = mlp_cls(
-            layer_sizes,
-            hidden_activation,
-            output_activation,
-            loss_cls(),
-            optimizer_factory,
-        )
-        with contextlib.redirect_stdout(io.StringIO()):
-            loss_history = model.fit(
-                train_inputs,
-                train_outputs,
-                epochs=config["max_epochs"],
-                lr=config["learning_rate"],
-                print_every=max(1, config["max_epochs"] // 10),
+            make_act = lambda name: instantiate_with_reflection(
+                resolve_class("tp_3.engine.activation_functions", name), config
             )
+            configured_activation = make_act(config["activation"])
+            if type(configured_activation).__name__ == "Step":
+                raise ValueError("Step activation has zero gradient and cannot be trained with MLP.fit().")
 
-        predictions = model.forward(test_inputs)
-        if output_size == 1:
-            actual = test_outputs.ravel()
-            predicted = predictions.ravel()
-            if target_column == FRAUD_TARGET:
-                predicted = np.clip(predicted, 0.0, 1.0)
-            residuals = predicted - actual
-            metrics = {
-                "MAE": float(np.mean(np.abs(residuals))),
-                "RMSE": float(np.sqrt(np.mean(residuals**2))),
+            is_simple = config["model_type"].startswith("simple") #TODO es redundante complejiza mucho logica, es mejor q si queres simple armes un mlp con arquitectura para q sea simple TODO: eliminar arg
+            hidden_activation = make_act("linear" if is_simple else config["activation"])
+            output_activation = make_act("linear" if config["model_type"] == "simple_linear" else config["activation"])
+
+            opt_cls = resolve_class("tp_3.engine.optimizers", config["optimizer"])
+            opt_sig = inspect.signature(opt_cls.__init__)
+            opt_kwargs = {
+                p: config[k]
+                for p, k in [("alpha", "momentum_beta")]
+                if p in opt_sig.parameters and k in config
             }
-            total_variation = np.sum((actual - actual.mean()) ** 2)
-            if total_variation > 0:
-                metrics["R2"] = float(1 - np.sum(residuals**2) / total_variation)
-            if np.unique(actual).size == 2:
-                class_predictions = (predicted >= config["threshold"]).astype(int)
-                metrics["Accuracy"] = float(np.mean(class_predictions == actual))
+            optimizer_factory = partial(opt_cls, **opt_kwargs) if opt_kwargs else opt_cls
 
-        else:
-            actual = np.argmax(test_outputs, axis=1)
-            predicted = np.argmax(predictions, axis=1)
-            metrics = {"Accuracy": float(np.mean(predicted == actual))}
+            mlp_cls = resolve_class("tp_3.engine.models", "mlp") #TODO parametrizar
+            loss_cls = resolve_class("tp_3.engine.loss_functions", "meansquarederror") #TODO parametrizar
+
+            np.random.seed(42)
+            model = mlp_cls(
+                layer_sizes,
+                hidden_activation,
+                output_activation,
+                loss_cls(),
+                optimizer_factory,
+            )
+            with contextlib.redirect_stdout(io.StringIO()):
+                loss_history = model.fit(
+                    train_inputs,
+                    train_outputs,
+                    epochs=config["max_epochs"],
+                    lr=config["learning_rate"],
+                    print_every=max(1, config["max_epochs"] // 10),
+                )
+
+            predictions = model.forward(test_inputs)
+            if output_size == 1:
+                actual = test_outputs.ravel()
+                predicted = predictions.ravel()
+                if target_column == FRAUD_TARGET:
+                    predicted = np.clip(predicted, 0.0, 1.0)
+                residuals = predicted - actual
+                metrics = {
+                    "MAE": float(np.mean(np.abs(residuals))),
+                    "RMSE": float(np.sqrt(np.mean(residuals**2))),
+                }
+                total_variation = np.sum((actual - actual.mean()) ** 2)
+                if total_variation > 0:
+                    metrics["R2"] = float(1 - np.sum(residuals**2) / total_variation)
+                if np.unique(actual).size == 2:
+                    class_predictions = (predicted >= config["threshold"]).astype(int)
+                    metrics["Accuracy"] = float(np.mean(class_predictions == actual))
+
+            else:
+                actual = np.argmax(test_outputs, axis=1)
+                predicted = np.argmax(predictions, axis=1)
+                metrics = {"Accuracy": float(np.mean(predicted == actual))}
+            
+            all_metrics.append(metrics)
+            if validation_method == "k_fold":
+                print(f"Fold {fold_idx + 1} metrics: ", ", ".join(f"{name}={value:.4f}" for name, value in metrics.items()))
+
+        # Average out the collected metrics
+        avg_metrics = {}
+        for k in all_metrics[0].keys():
+            avg_metrics[k] = float(np.mean([m[k] for m in all_metrics if k in m]))
 
         model_path = Path(config["save_model_path"]) if config.get("save_model_path") else None
         if model_path:
@@ -205,7 +258,9 @@ def main() -> None:
             is_classification=output_size > 1,
         )
         print(f"Training complete: {config['model_type']} ({config['activation']})")
-        print("Held-out metrics:", ", ".join(f"{name}={value:.4f}" for name, value in metrics.items()))
+        print("Average CV metrics:" if validation_method == "k_fold" else "Held-out metrics:",
+              ", ".join(f"{name}={value:.4f}" for name, value in avg_metrics.items())
+        )
         print(f"Final training MSE: {loss_history[-1]:.5f}")
         print(f"Training graphs: {RESULTS_PATH}")
         if model_path:

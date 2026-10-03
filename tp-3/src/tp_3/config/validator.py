@@ -13,6 +13,12 @@ def validate_config(cfg: Dict[str, Any]) -> None:
     if cfg.get("test_dataset_path") and not os.path.exists(cfg["test_dataset_path"]):
         raise FileNotFoundError(f"Test dataset file not found at: {cfg['test_dataset_path']}")
 
+    validation_method = cfg.get("validation_method", "split")
+    if validation_method == "explicit" and not cfg.get("test_dataset_path"):
+        raise ValueError("test_dataset_path is required when validation-method is 'explicit'.")
+    if validation_method == "k_fold" and cfg.get("k_folds", 0) < 2:
+        raise ValueError("k_folds must be at least 2 for 'k_fold' validation method.")
+
     if cfg.get("load_model_path") and not os.path.exists(cfg["load_model_path"]):
         raise FileNotFoundError(f"Pre-trained model file not found at: {cfg['load_model_path']}")
 
