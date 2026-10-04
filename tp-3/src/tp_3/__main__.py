@@ -183,7 +183,8 @@ def main() -> None:
             optimizer_factory = partial(opt_cls, **opt_kwargs) if opt_kwargs else opt_cls
 
             mlp_cls = resolve_class("tp_3.engine.models", "mlp") #TODO parametrizar
-            loss_cls = resolve_class("tp_3.engine.loss_functions", "meansquarederror") #TODO parametrizar
+            loss_cls = resolve_class("tp_3.engine.loss_functions", config["loss"])
+            loss_fn = instantiate_with_reflection(loss_cls, config)
 
             np.random.seed(42)
             if config.get("load_model_path"):
@@ -195,7 +196,7 @@ def main() -> None:
                     layer_sizes,
                     hidden_activation,
                     output_activation,
-                    loss_cls(),
+                    loss_fn,
                     optimizer_factory,
                 )
 
