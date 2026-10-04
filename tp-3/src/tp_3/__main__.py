@@ -186,13 +186,19 @@ def main() -> None:
             loss_cls = resolve_class("tp_3.engine.loss_functions", "meansquarederror") #TODO parametrizar
 
             np.random.seed(42)
-            model = mlp_cls(
-                layer_sizes,
-                hidden_activation,
-                output_activation,
-                loss_cls(),
-                optimizer_factory,
-            )
+            if config.get("load_model_path"):
+                with open(config["load_model_path"], "rb") as model_file:
+                    checkpoint = pickle.load(model_file)
+                model = checkpoint.get("model", checkpoint)
+            else:
+                model = mlp_cls(
+                    layer_sizes,
+                    hidden_activation,
+                    output_activation,
+                    loss_cls(),
+                    optimizer_factory,
+                )
+
             with contextlib.redirect_stdout(io.StringIO()):
                 loss_history = model.fit(
                     train_inputs,
