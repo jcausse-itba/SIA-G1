@@ -4,11 +4,10 @@ import json
 from pathlib import Path
 from typing import Any, Dict
 
-from tp_3.__main__ import PROJECT_ROOT, run_pipeline
 from tp_3.config.loader import load_and_merge_config
 from tp_3.config.parser import build_parser
 from tp_3.metrics.ej2_metrics import write_ej2_plots
-
+from tp_3.pipeline import PROJECT_ROOT, run_pipeline
 
 def get_ej2_experiments(base_config: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     experiments = {}
