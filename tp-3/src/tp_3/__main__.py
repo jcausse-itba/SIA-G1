@@ -1,9 +1,11 @@
 import ast
-import contextlib
-from functools import partial
-import io
+import importlib
+import inspect
 import pickle
+import pkgutil
+from functools import partial
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -11,12 +13,15 @@ import pandas as pd
 from tp_3.config.loader import load_and_merge_config
 from tp_3.config.parser import build_parser
 from tp_3.config.validator import validate_config
-import importlib
-import inspect
-import pkgutil
+from tp_3.training_report import write_training_report
 
 
-def resolve_class(package_path: str, name: str):
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+RESULTS_PATH = PROJECT_ROOT / "mlp_training_results.html"
+FRAUD_TARGET = "big_model_fraud_probability"
+
+
+def resolve_class(package_path: str, name: str) -> Any:
     """Dynamically locates and loads a class from a package by name/alias."""
     pkg = importlib.import_module(package_path)
     target = name.lower().replace("_", "")
@@ -28,18 +33,25 @@ def resolve_class(package_path: str, name: str):
     raise ValueError(f'Could not resolve class "{name}" in "{package_path}"')
 
 
-def instantiate_with_reflection(cls, config: dict):
+def instantiate_with_reflection(cls: Any, config: dict) -> Any:
     """Instantiates a class by dynamically matching constructor parameters to config keys."""
     sig = inspect.signature(cls.__init__)
     param_map = {"alpha": "momentum_beta"}
     kwargs = {p: config[param_map.get(p, p)] for p in sig.parameters if param_map.get(p, p) in config}
     return cls(**kwargs)
-from tp_3.training_report import write_training_report
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-RESULTS_PATH = PROJECT_ROOT / "mlp_training_results.html"
-FRAUD_TARGET = "big_model_fraud_probability"
+def features_to_inputs(features: pd.DataFrame) -> np.ndarray:
+    """Converts a features frame to a 2D float array (parsing the 'image' column if present)."""
+    if "image" in features.columns:
+        image_values = features["image"].map(
+            lambda value: np.asarray(
+                value if isinstance(value, list) else ast.literal_eval(str(value)),
+                dtype=np.float64,
+            )
+        )
+        return np.stack(image_values.tolist())
+    return features.to_numpy(dtype=np.float64)
 
 
 def main() -> None:
@@ -62,16 +74,7 @@ def main() -> None:
         )
         targets = frame[target_column].to_numpy()
         features = frame.drop(columns=[target_column])
-        if "image" in features.columns:
-            image_values = features["image"].map(
-                lambda value: np.asarray(
-                    value if isinstance(value, list) else ast.literal_eval(str(value)),
-                    dtype=np.float64,
-                )
-            )
-            inputs = np.stack(image_values.to_numpy())
-        else:
-            inputs = features.to_numpy(dtype=np.float64)
+        inputs = features_to_inputs(features)
 
         if config["model_type"] == "multilayer":
             layer_sizes = config["architecture"]
@@ -99,7 +102,8 @@ def main() -> None:
             order = np.random.default_rng(42).permutation(len(frame))
 
         validation_method = config.get("validation_method", "split")
-        
+
+        folds: list[tuple[Any, Any]]
         if validation_method == "split":
             split_index = int(len(order) * config["split_ratio"])
             folds = [(order[:split_index], order[split_index:])]
@@ -112,27 +116,27 @@ def main() -> None:
         else:
             folds = [(None, None)]  # Placeholder for explicit loading
 
+        scaling_method = config.get("scaling", "standardization")
+
+        # Initialised up-front so they are always bound after the fold loop.
+        model: Any = None
+        feature_mean = np.zeros(inputs.shape[1], dtype=np.float64)
+        feature_scale = np.ones(inputs.shape[1], dtype=np.float64)
+        loss_history: list[float] = []
+        actual = np.array([])
+        predicted = np.array([])
+
         all_metrics = []
         for fold_idx, (train_indices, test_indices) in enumerate(folds):
             if validation_method == "explicit":
                 train_inputs, train_outputs = inputs, outputs
-                
+
                 test_frame = pd.read_csv(
                     config["test_dataset_path"],
                     usecols=lambda column: column != "flagged_fraud",
                 )
                 test_targets = test_frame[target_column].to_numpy()
-                test_features = test_frame.drop(columns=[target_column])
-                if "image" in test_features.columns:
-                    test_image_values = test_features["image"].map(
-                        lambda value: np.asarray(
-                            value if isinstance(value, list) else ast.literal_eval(str(value)),
-                            dtype=np.float64,
-                        )
-                    )
-                    test_inputs = np.stack(test_image_values.to_numpy())
-                else:
-                    test_inputs = test_features.to_numpy(dtype=np.float64)
+                test_inputs = features_to_inputs(test_frame.drop(columns=[target_column]))
 
                 if output_size == 1:
                     test_outputs = test_targets.astype(np.float64).reshape(-1, 1)
@@ -146,7 +150,6 @@ def main() -> None:
                 train_inputs, test_inputs = inputs[train_indices], inputs[test_indices]
                 train_outputs, test_outputs = outputs[train_indices], outputs[test_indices]
 
-            scaling_method = config.get("scaling", "standardization")
             if scaling_method == "minmax":
                 feature_mean = train_inputs.min(axis=0)
                 feature_scale = train_inputs.max(axis=0) - feature_mean
@@ -231,7 +234,7 @@ def main() -> None:
                 actual = np.argmax(test_outputs, axis=1)
                 predicted = np.argmax(predictions, axis=1)
                 metrics = {"Accuracy": float(np.mean(predicted == actual))}
-            
+
             all_metrics.append(metrics)
             if validation_method == "k_fold":
                 print(f"Fold {fold_idx + 1} metrics: ", ", ".join(f"{name}={value:.4f}" for name, value in metrics.items()))

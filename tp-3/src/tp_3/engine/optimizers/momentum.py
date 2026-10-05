@@ -21,9 +21,9 @@ class Momentum(Optimizer):
         self.alpha = np.float64(alpha)
         self.delta_w: NDArray[np.float64] | None = None
 
-    def update(self, weights: NDArray[np.float16], gradients: NDArray[np.float16]) -> NDArray[np.float16]:
+    def update(self, weights: NDArray[np.float64], gradients: NDArray[np.float64]) -> NDArray[np.float64]:
         if self.delta_w is None:
             self.delta_w = np.zeros_like(weights, dtype=np.float64)
 
         self.delta_w = -self.lr * gradients.astype(np.float64) + self.alpha * self.delta_w
-        return (weights.astype(np.float64) + self.delta_w).astype(np.float16)
+        return (weights.astype(np.float64) + self.delta_w).astype(np.float64)

@@ -6,7 +6,7 @@ from numpy.typing import NDArray
 class Optimizer(ABC):
 
     @abstractmethod
-    def update(self, weights: NDArray[np.float16], gradients: NDArray[np.float16]) -> NDArray[np.float16]:
+    def update(self, weights: NDArray[np.float64], gradients: NDArray[np.float64]) -> NDArray[np.float64]:
         """
         Compute and return the updated parameter array using the given gradients.
 

@@ -3,11 +3,11 @@ from contextlib import redirect_stdout
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from activation_functions.identity import Identity
-from activation_functions.relu import ReLU
-from loss_functions.mse import MeanSquaredError
-from models.mlp import MLP  # Imports the MLP class provided in your codebase
-from optimizers.adam import Adam
+from .activation_functions.identity import Identity
+from .activation_functions.relu import ReLU
+from .loss_functions.mse import MeanSquaredError
+from .models.mlp import MLP  # Imports the MLP class provided in your codebase
+from .optimizers.adam import Adam
 
 def target_function(x1: np.ndarray, x2: np.ndarray) -> np.ndarray:
     """2D Damped Wave / Sinc Surface."""

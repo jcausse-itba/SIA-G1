@@ -7,9 +7,10 @@ from plotly.subplots import make_subplots
 
 
 ROOT = Path(__file__).resolve().parent
-DATA_PATH = ROOT / "data and documentation" / "fraud_dataset.csv"
+DATA_PATH = ROOT / "data" / "fraud_dataset.csv"
 REPORT_PATH = ROOT / "fraud_dataset_ranges.html"
 TARGET = "big_model_fraud_probability"
+QUANTILE_LABELS = ["Min", "25%", "Median", "75%", "Max"]
 
 
 def display_value(value, column: str) -> str:
@@ -78,7 +79,6 @@ def main() -> None:
         )
 
         quantiles = values.quantile([0, 0.25, 0.5, 0.75, 1])
-        labels = ["Min", "25%", "Median", "75%", "Max"]
         summary_cells = "".join(
             f"<td>{escape(display_value(value, column))}</td>"
             for value in quantiles.to_list()
@@ -120,7 +120,7 @@ def main() -> None:
         config={"responsive": True, "displaylogo": False},
     )
     correlation_rows = "".join(
-        f"<tr><th>{escape(column)}</th><td>{row['Pearson']:.4f}</td><td>{row['Spearman']:.4f}</td></tr>"
+        f"<tr><th>{escape(str(column))}</th><td>{row['Pearson']:.4f}</td><td>{row['Spearman']:.4f}</td></tr>"
         for column, row in correlations.iterrows()
     )
 
@@ -151,7 +151,7 @@ def main() -> None:
     <h1>Fraud Dataset Statistics and Correlations</h1>
     <p>{len(frame):,} rows. Each available column has a histogram and box plot; the table summarizes minimum, quartiles, median, maximum, and unique values.</p>
   <div class="summary"><table>
-    <thead><tr><th>Column</th>{''.join(f'<th>{label}</th>' for label in labels)}<th>Unique</th></tr></thead>
+    <thead><tr><th>Column</th>{''.join(f'<th>{label}</th>' for label in QUANTILE_LABELS)}<th>Unique</th></tr></thead>
     <tbody>{''.join(summaries)}</tbody>
   </table></div>
   {''.join(f'<section class="chart">{chart}</section>' for chart in charts)}

@@ -1,9 +1,12 @@
 import numpy as np
+from numpy.typing import NDArray
 from .activation_functions.base_activation import ActivationFunction
 
 class Layer:
 
     def __init__(self, in_dimm: int, out_dimm: int, activation_function: ActivationFunction, initialization=None):
+        self.W: NDArray[np.float64]
+        self.b: NDArray[np.float64]
         if initialization is None:
             std = np.sqrt(2.0 / in_dimm)
             self.W = np.random.randn(in_dimm, out_dimm) * std

@@ -1,3 +1,5 @@
+from typing import Callable
+
 import numpy as np
 from numpy.typing import NDArray
 from ..layer import Layer
@@ -5,21 +7,32 @@ from ..activation_functions.base_activation import ActivationFunction
 from ..optimizers.base import Optimizer
 from ..loss_functions.base import Loss
 
+
 class MLP:
-    def __init__(self, layer_sizes: list[int], input_activation: ActivationFunction, output_activation: ActivationFunction, loss_function: Loss, optimizer: Optimizer):
+    def __init__(
+        self,
+        layer_sizes: list[int],
+        input_activation: ActivationFunction,
+        output_activation: ActivationFunction,
+        loss_function: Loss,
+        optimizer: Callable[..., Optimizer],
+    ):
         """
         Initializes an MLP given layer dimensions.
+
+        `optimizer` is a factory (an Optimizer subclass or a functools.partial of one)
+        that is called with `lr=...` to create one optimizer per parameter array.
         """
         self.layers: list[Layer] = []
         self.loss_fn: Loss = loss_function
-        self.optimizer: Optimizer = optimizer
-        
+        self.optimizer: Callable[..., Optimizer] = optimizer
+
         for i in range(len(layer_sizes) - 1):
             in_dim = layer_sizes[i]
             out_dim = layer_sizes[i + 1]
             is_last = (i == len(layer_sizes) - 2)
 
-            # Use output_activation for final layer if specified, else ReLU
+            # Use output_activation for final layer if specified, else the hidden activation
             if is_last and output_activation is not None:
                 act = output_activation
             else:
@@ -47,12 +60,12 @@ class MLP:
         return grads
 
     def fit(
-        self, 
-        X: NDArray, 
-        y: NDArray, 
-        batch_size: int | None,
-        epochs: int = 1000, 
-        lr: float = 0.001, 
+        self,
+        X: NDArray,
+        y: NDArray,
+        batch_size: int | None = None,
+        epochs: int = 1000,
+        lr: float = 0.001,
         print_every: int = 100,
     ) -> list[float]:
         if len(X) == 0:
@@ -60,7 +73,7 @@ class MLP:
         if batch_size is not None and batch_size <= 0:
             raise ValueError("Batch size must be greater than zero.")
 
-        # Each weight matrix and bias vector MUST have its own  optimizer instance 
+        # Each weight matrix and bias vector MUST have its own optimizer instance
         # to correctly preserve moment states (m and v).
         optimizers_W = [self.optimizer(lr=lr) for _ in self.layers]
         optimizers_b = [self.optimizer(lr=lr) for _ in self.layers]

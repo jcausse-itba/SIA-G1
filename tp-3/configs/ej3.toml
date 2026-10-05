@@ -1,6 +1,6 @@
 [data]
-dataset_path = "./data and documentation/more_digits.csv"
-test_dataset_path = "./data and documentation/more_digits.csv"
+dataset_path = "./data/more_digits.csv"
+test_dataset_path = "./data/more_digits.csv"
 
 [model]
 model_type = "multilayer"

@@ -1,4 +1,3 @@
-from abc import ABC, abstractmethod
 import numpy as np
 from numpy.typing import NDArray
 from .base import Optimizer
@@ -15,9 +14,9 @@ class RMSProp(Optimizer):
 
     def __init__(
         self,
-        lr: np.float16 = np.float16(0.001),
-        gamma: np.float16 = np.float16(0.9),
-        epsilon: np.float16 = np.float16(1e-8),
+        lr: float = 0.001,
+        gamma: float = 0.9,
+        epsilon: float = 1e-8,
     ):
         """
         :param lr: Learning rate (η).
@@ -29,7 +28,7 @@ class RMSProp(Optimizer):
         self.epsilon = np.float64(epsilon)
         self.S: NDArray[np.float64] | None = None
 
-    def update(self, weights: NDArray[np.float16], gradients: NDArray[np.float16]) -> NDArray[np.float16]:
+    def update(self, weights: NDArray[np.float64], gradients: NDArray[np.float64]) -> NDArray[np.float64]:
         if self.S is None:
             self.S = np.zeros_like(weights, dtype=np.float64)
 
@@ -37,4 +36,4 @@ class RMSProp(Optimizer):
         self.S = self.gamma * self.S + (np.float64(1.0) - self.gamma) * (g_t ** 2)
 
         delta_w = -(self.lr / np.sqrt(self.S + self.epsilon)) * g_t
-        return (weights.astype(np.float64) + delta_w).astype(np.float16)
+        return weights.astype(np.float64) + delta_w
