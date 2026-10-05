@@ -1,0 +1,18 @@
+[data]
+dataset_path = "./data and documentation/more_digits.csv"
+test_dataset_path = "./data and documentation/more_digits.csv"
+
+[model]
+model_type = "multilayer"
+architecture = [784, 128, 64, 10]
+activation = "relu"
+beta = 1.0
+
+[training]
+learning_rate = 0.01
+optimizer = "adam"
+momentum_beta = 0.9
+
+[stopping]
+max_epochs = 1000
+
