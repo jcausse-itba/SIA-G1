@@ -200,15 +200,14 @@ def main() -> None:
                     optimizer_factory,
                 )
 
-            with contextlib.redirect_stdout(io.StringIO()):
-                loss_history = model.fit(
-                    train_inputs,
-                    train_outputs,
-                    epochs=config["max_epochs"],
-                    lr=config["learning_rate"],
-                    print_every=max(1, config["max_epochs"] // 10),
-                    batch_size=config["batch_size"],
-                )
+            loss_history = model.fit(
+                train_inputs,
+                train_outputs,
+                epochs=config["max_epochs"],
+                lr=config["learning_rate"],
+                print_every=max(1, config["max_epochs"] // 10),
+                batch_size=config["batch_size"],
+            )
 
             predictions = model.forward(test_inputs)
             if output_size == 1:
