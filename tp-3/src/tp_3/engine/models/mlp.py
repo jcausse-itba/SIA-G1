@@ -67,6 +67,8 @@ class MLP:
         epochs: int = 1000,
         lr: float = 0.001,
         print_every: int = 100,
+        epoch_callback: Callable[[int, "MLP"], None] | None = None,
+        callback_epochs: set[int] | None = None,
     ) -> list[float]:
         if len(X) == 0:
             raise ValueError("Training data must contain at least one sample.")
@@ -108,5 +110,8 @@ class MLP:
 
             if epoch % print_every == 0 or epoch == 1:
                 print(f"Epoch {epoch:4d}/{epochs} | Loss: {epoch_loss:.6f}")
+
+            if epoch_callback is not None and (callback_epochs is None or epoch in callback_epochs):
+                epoch_callback(epoch, self)
 
         return history

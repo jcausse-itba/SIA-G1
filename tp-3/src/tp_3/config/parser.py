@@ -62,6 +62,13 @@ def build_parser() -> argparse.ArgumentParser:
     gen.add_argument("--k-folds", type=int, default=5, help="Number of folds for Cross Validation")
     gen.add_argument("--threshold", type=float, default=0.5, help="Decision threshold for classification")
 
+    gen.add_argument("--fraud-cutoff", type=float, default=0.5,
+                     help="BigModel probability >= cutoff is treated as real fraud when computing precision/recall/F1/TPR/FPR")
+    gen.add_argument("--metrics-points", type=int, default=100,
+                     help="Per-epoch curves show the first N epochs; threshold curves use N thresholds in [0, 1]")
+    gen.add_argument("--metrics-dir", type=str, default="metrics",
+                     help="Folder where each fraud metric chart is written as its own .html")
+
     # Persistence
     pers = parser.add_argument_group("Model Persistence")
     pers.add_argument("--save-model-path", type=str, default=None, help="Path to save trained weights/model")

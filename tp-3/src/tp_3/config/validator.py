@@ -38,6 +38,12 @@ def validate_config(cfg: Dict[str, Any]) -> None:
     if not (0.0 <= cfg["threshold"] <= 1.0):
         raise ValueError("Threshold (--threshold) must be between 0.0 and 1.0.")
 
+    if not (0.0 <= cfg.get("fraud_cutoff", 0.5) <= 1.0):
+        raise ValueError("Fraud cutoff (--fraud-cutoff) must be between 0.0 and 1.0.")
+
+    if cfg.get("metrics_points", 100) < 1:
+        raise ValueError("Metrics points (--metrics-points) must be at least 1.")
+
     # Validación de la arquitectura
     if cfg["model_type"] == "multilayer":
         if not cfg["architecture"] or len(cfg["architecture"]) < 2:

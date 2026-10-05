@@ -14,6 +14,8 @@ from tp_3.config.loader import load_and_merge_config
 from tp_3.config.parser import build_parser
 from tp_3.config.validator import validate_config
 from tp_3.training_report import write_training_report
+from tp_3.metrics.metrics import EpochMetricsTracker
+from tp_3.metrics.report import write_fraud_metrics_report
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -127,6 +129,7 @@ def main() -> None:
         predicted = np.array([])
 
         all_metrics = []
+        tracker: EpochMetricsTracker | None = None
         for fold_idx, (train_indices, test_indices) in enumerate(folds):
             if validation_method == "explicit":
                 train_inputs, train_outputs = inputs, outputs
@@ -203,6 +206,16 @@ def main() -> None:
                     optimizer_factory,
                 )
 
+            tracker = None
+            if output_size == 1 and target_column == FRAUD_TARGET:
+                tracker = EpochMetricsTracker(
+                    train_inputs, train_outputs, test_inputs, test_outputs,
+                    threshold=config["threshold"],
+                    fraud_cutoff=config.get("fraud_cutoff", 0.5),
+                    total_epochs=config["max_epochs"],
+                    n_points=config.get("metrics_points", 100),
+                )
+
             loss_history = model.fit(
                 train_inputs,
                 train_outputs,
@@ -210,6 +223,8 @@ def main() -> None:
                 lr=config["learning_rate"],
                 print_every=max(1, config["max_epochs"] // 10),
                 batch_size=config["batch_size"],
+                epoch_callback=tracker,
+                callback_epochs=tracker.epoch_set if tracker else None,
             )
 
             predictions = model.forward(test_inputs)
@@ -267,6 +282,15 @@ def main() -> None:
             RESULTS_PATH,
             is_classification=output_size > 1,
         )
+        if tracker is not None:
+            metrics_dir = Path(config.get("metrics_dir") or "metrics")
+            if not metrics_dir.is_absolute():
+                metrics_dir = PROJECT_ROOT / metrics_dir
+            summary = write_fraud_metrics_report(
+                tracker, actual, predicted, metrics_dir, n_points=config.get("metrics_points", 100)
+            )
+            print(f"Metric charts written to: {metrics_dir}")
+            print(f"Best-F1 threshold: {summary['best_threshold']:.2f} (F1={summary['best_f1']:.4f}), ROC AUC≈{summary['roc_auc']:.4f}")
         print(f"Training complete: {config['model_type']} ({config['activation']})")
         print("Average CV metrics:" if validation_method == "k_fold" else "Held-out metrics:",
               ", ".join(f"{name}={value:.4f}" for name, value in avg_metrics.items())

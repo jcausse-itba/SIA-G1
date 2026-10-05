@@ -17,6 +17,8 @@ batch_size = 64
 max_epochs = 2000
 target_error = 0.001
 target_accuracy = 0.99
+fraud_cutoff = 0.5
+metrics_points = 100
 
 [generalization]
 split_ratio = 0.8                 # 80% entrenamiento, 20% validación
