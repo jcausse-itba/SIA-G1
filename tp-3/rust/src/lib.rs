@@ -1,6 +1,7 @@
 use numpy::ndarray::Array2;
 use numpy::{IntoPyArray, PyArray2, PyReadonlyArray2};
 use pyo3::prelude::*;
+use rayon::prelude::*;
 
 #[pyfunction]
 fn matmul<'py>(
@@ -19,32 +20,54 @@ fn matmul<'py>(
         "Inner dimensions must match for matrix multiplication"
     );
 
-    // Uninitialized output matrix buffer
     let mut result = Array2::<f64>::zeros((m, n));
 
-    // Get raw pointers and strides for matrixmultiply SIMD gemm kernel
-    let x_ptr = x_view.as_ptr();
-    let w_ptr = w_view.as_ptr();
-    let res_ptr = result.as_mut_ptr();
+    let x_stride_0 = x_view.strides()[0];
+    let x_stride_1 = x_view.strides()[1];
+    let w_stride_0 = w_view.strides()[0];
+    let w_stride_1 = w_view.strides()[1];
 
-    unsafe {
-        matrixmultiply::dgemm(
-            m,
-            k,
-            n,
-            1.0, // alpha
-            x_ptr,
-            x_view.strides()[0],
-            x_view.strides()[1], // A strides
-            w_ptr,
-            w_view.strides()[0],
-            w_view.strides()[1], // B strides
-            0.0,                 // beta
-            res_ptr,
-            result.strides()[0],
-            result.strides()[1], // C strides
-        );
-    }
+    let res_stride_0 = result.strides()[0];
+    let res_stride_1 = result.strides()[1];
+
+    let w_ptr = w_view.as_ptr();
+
+    // Determine row chunk size per Rayon thread task
+    let chunk_size = (m / rayon::current_num_threads()).max(1);
+
+    // Parallelize matrix multiplication along the row axis (m) using Rayon & SIMD256
+    py.allow_threads(|| {
+        result
+            .axis_chunks_iter_mut(ndarray::Axis(0), chunk_size)
+            .enumerate()
+            .par_bridge()
+            .for_each(|(chunk_idx, mut res_chunk)| {
+                let row_start = chunk_idx * chunk_size;
+                let chunk_rows = res_chunk.nrows();
+
+                unsafe {
+                    let x_chunk_ptr = x_view.as_ptr().offset(row_start as isize * x_stride_0);
+                    let res_chunk_ptr = res_chunk.as_mut_ptr();
+
+                    matrixmultiply::dgemm(
+                        chunk_rows,
+                        k,
+                        n,
+                        1.0,
+                        x_chunk_ptr,
+                        x_stride_0,
+                        x_stride_1,
+                        w_ptr,
+                        w_stride_0,
+                        w_stride_1,
+                        0.0,
+                        res_chunk_ptr,
+                        res_stride_0,
+                        res_stride_1,
+                    );
+                }
+            });
+    });
 
     Ok(result.into_pyarray(py))
 }
