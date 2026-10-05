@@ -6,9 +6,10 @@ from ..layer import Layer
 from ..activation_functions.base_activation import ActivationFunction
 from ..optimizers.base import Optimizer
 from ..loss_functions.base import Loss
+from .base import BaseModel
 
 
-class MLP:
+class MLP(BaseModel):
     def __init__(
         self,
         layer_sizes: list[int],
