@@ -1,4 +1,4 @@
-import ast
+import json
 import importlib
 import inspect
 import pickle
@@ -46,13 +46,11 @@ def instantiate_with_reflection(cls: Any, config: dict) -> Any:
 def features_to_inputs(features: pd.DataFrame) -> np.ndarray:
     """Converts a features frame to a 2D float array (parsing the 'image' column if present)."""
     if "image" in features.columns:
-        image_values = features["image"].map(
-            lambda value: np.asarray(
-                value if isinstance(value, list) else ast.literal_eval(str(value)),
-                dtype=np.float64,
-            )
-        )
-        return np.stack(image_values.tolist())
+        image_values = [
+            v if isinstance(v, list) else json.loads(str(v))
+            for v in features["image"]
+        ]
+        return np.array(image_values, dtype=np.float64)
     return features.to_numpy(dtype=np.float64)
 
 
