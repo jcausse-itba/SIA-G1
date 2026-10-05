@@ -13,6 +13,11 @@ learning_rate = 0.01
 optimizer = "adam"
 momentum_beta = 0.9
 
+[generalization]
+split_ratio = 0.85
+k_folds = 10
+threshold = 0.5
+
 [stopping]
 max_epochs = 1000
 
