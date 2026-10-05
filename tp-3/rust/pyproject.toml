@@ -1,0 +1,19 @@
+[build-system]
+requires = ["maturin>=1.15,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "rust-matmul"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = ["numpy>=2.5.3"]
+
+[tool.maturin]
+module-name = "rust_matmul"
+
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "Cargo.toml" },
+    { file = "src/**/*.rs" },
+]

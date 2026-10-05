@@ -13,19 +13,24 @@ authors = [
 requires-python = ">=3.14"
 dependencies = [
     "matplotlib>=3.11.2",
-    "maturin>=1.15.0",
     "numpy>=2.5.3",
     "pandas>=3.0.6",
     "plotly>=7.1.0",
+    "rust-matmul",
     "tabulate>=0.10.0",
 ]
 
 [project.scripts]
 tp-3 = "tp_3.__main__:main"
 
+[dependency-groups]
+dev = [
+    "maturin>=1.15.0",
+]
+
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]
 build-backend = "uv_build"
 
-[tool.maturin]
-module-name = "rust_matmul"
+[tool.uv.sources]
+rust-matmul = { path = "rust" }
