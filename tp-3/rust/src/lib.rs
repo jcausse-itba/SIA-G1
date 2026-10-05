@@ -11,8 +11,40 @@ fn matmul<'py>(
     let x_view = x.as_array();
     let w_view = w.as_array();
 
-    // Matrix multiplication: (m, k) @ (k, n) -> (m, n)
-    let result: Array2<f64> = x_view.dot(&w_view);
+    let (m, k) = (x_view.nrows(), x_view.ncols());
+    let (k_w, n) = (w_view.nrows(), w_view.ncols());
+
+    assert_eq!(
+        k, k_w,
+        "Inner dimensions must match for matrix multiplication"
+    );
+
+    // Uninitialized output matrix buffer
+    let mut result = Array2::<f64>::zeros((m, n));
+
+    // Get raw pointers and strides for matrixmultiply SIMD gemm kernel
+    let x_ptr = x_view.as_ptr();
+    let w_ptr = w_view.as_ptr();
+    let res_ptr = result.as_mut_ptr();
+
+    unsafe {
+        matrixmultiply::dgemm(
+            m,
+            k,
+            n,
+            1.0, // alpha
+            x_ptr,
+            x_view.strides()[0],
+            x_view.strides()[1], // A strides
+            w_ptr,
+            w_view.strides()[0],
+            w_view.strides()[1], // B strides
+            0.0,                 // beta
+            res_ptr,
+            result.strides()[0],
+            result.strides()[1], // C strides
+        );
+    }
 
     Ok(result.into_pyarray(py))
 }

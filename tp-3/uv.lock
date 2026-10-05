@@ -455,6 +455,17 @@ wheels = [
 ]
 
 [[package]]
+name = "rust-matmul"
+version = "0.1.0"
+source = { directory = "rust" }
+dependencies = [
+    { name = "numpy" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "numpy", specifier = ">=2.5.3" }]
+
+[[package]]
 name = "six"
 version = "1.17.0"
 source = { registry = "https://pypi.org/simple" }
@@ -478,22 +489,30 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "matplotlib" },
-    { name = "maturin" },
     { name = "numpy" },
     { name = "pandas" },
     { name = "plotly" },
+    { name = "rust-matmul" },
     { name = "tabulate" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "maturin" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "matplotlib", specifier = ">=3.11.2" },
-    { name = "maturin", specifier = ">=1.15.0" },
     { name = "numpy", specifier = ">=2.5.3" },
     { name = "pandas", specifier = ">=3.0.6" },
     { name = "plotly", specifier = ">=7.1.0" },
+    { name = "rust-matmul", directory = "rust" },
     { name = "tabulate", specifier = ">=0.10.0" },
 ]
+
+[package.metadata.requires-dev]
+dev = [{ name = "maturin", specifier = ">=1.15.0" }]
 
 [[package]]
 name = "tzdata"
