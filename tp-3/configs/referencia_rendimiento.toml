@@ -1,6 +1,7 @@
 [data]
 dataset_path = "./data and documentation/more_digits.csv"
 test_dataset_path = "./data and documentation/more_digits.csv"
+metrics_points = 0
 
 [model]
 model_type = "multilayer"
