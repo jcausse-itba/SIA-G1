@@ -24,51 +24,28 @@ fn matmul<'py>(
 
     let mut result = Array2::<f64>::zeros((m, n));
     if m == 0 || n == 0 || k == 0 {
-        return Ok(result.into_pyarray(py));
+        return Ok(result.into_pyarray_bound(py));
     }
-
-    let [x_s0, x_s1] = [x_view.strides()[0], x_view.strides()[1]];
-    let [w_s0, w_s1] = [w_view.strides()[0], w_view.strides()[1]];
-    let [r_s0, r_s1] = [result.strides()[0], result.strides()[1]];
 
     let num_threads = rayon::current_num_threads();
 
-    if num_threads <= 1 || m * n * k < 64_000 || m < num_threads {
-        py.detach(|| unsafe {
-            matrixmultiply::dgemm(
-                m, k, n, 1.0, x_view.as_ptr(), x_s0, x_s1, w_view.as_ptr(), w_s0, w_s1, 0.0,
-                result.as_mut_ptr(), r_s0, r_s1,
-            );
-        });
-        return Ok(result.into_pyarray(py));
-    }
+    py.allow_threads(|| {
+        if num_threads <= 1 || m * n * k < 64_000 || m < num_threads {
+            ndarray::linalg::general_mat_mul(1.0, &x_view, &w_view, 0.0, &mut result);
+        } else {
+            // Over-chunk into smaller batches to keep Rayon work-stealing efficient across all CPU cores
+            let chunk_size = (m / (num_threads * 4)).max(16);
 
-    let chunk_size = m / num_threads;
+            let res_chunks = result.axis_chunks_iter_mut(Axis(0), chunk_size).into_par_iter();
+            let x_chunks = x_view.axis_chunks_iter(Axis(0), chunk_size).into_par_iter();
 
-    py.detach(|| {
-        result
-            .axis_chunks_iter_mut(Axis(0), chunk_size)
-            .enumerate()
-            .par_bridge()
-            .for_each(|(chunk_idx, mut res_chunk)| {
-                let row_start = chunk_idx * chunk_size;
-                let chunk_rows = res_chunk.nrows();
-
-                unsafe {
-                    // Raw pointers are created inside the closure so it stays Send + Sync
-                    let x_ptr = x_view.as_ptr().offset(row_start as isize * x_s0);
-                    let w_ptr = w_view.as_ptr();
-                    let r_ptr = res_chunk.as_mut_ptr();
-
-                    matrixmultiply::dgemm(
-                        chunk_rows, k, n, 1.0, x_ptr, x_s0, x_s1, w_ptr, w_s0, w_s1, 0.0, r_ptr,
-                        r_s0, r_s1,
-                    );
-                }
+            res_chunks.zip(x_chunks).for_each(|(mut res_chunk, x_chunk)| {
+                ndarray::linalg::general_mat_mul(1.0, &x_chunk, &w_view, 0.0, &mut res_chunk);
             });
+        }
     });
 
-    Ok(result.into_pyarray(py))
+    Ok(result.into_pyarray_bound(py))
 }
 
 #[pymodule]
