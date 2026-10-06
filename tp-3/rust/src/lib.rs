@@ -31,7 +31,19 @@ fn matmul<'py>(
     let [w_s0, w_s1] = [w_view.strides()[0], w_view.strides()[1]];
     let [r_s0, r_s1] = [result.strides()[0], result.strides()[1]];
 
-    let chunk_size = (m / rayon::current_num_threads()).max(1);
+    let num_threads = rayon::current_num_threads();
+
+    if num_threads <= 1 || m * n * k < 64_000 || m < num_threads {
+        py.detach(|| unsafe {
+            matrixmultiply::dgemm(
+                m, k, n, 1.0, x_view.as_ptr(), x_s0, x_s1, w_view.as_ptr(), w_s0, w_s1, 0.0,
+                result.as_mut_ptr(), r_s0, r_s1,
+            );
+        });
+        return Ok(result.into_pyarray(py));
+    }
+
+    let chunk_size = m / num_threads;
 
     py.detach(|| {
         result
