@@ -25,5 +25,5 @@ k_folds = 5
 threshold = 0.5
 
 [persistence]
-save_model_path = "./models/ej2_mlp.json"
+save_model_path = "./models/ej2_mlp.pkl"
 load_model_path = ""
