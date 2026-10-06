@@ -114,6 +114,7 @@ class MLP(BaseModel):
                 print(f"Epoch {epoch:4d}/{epochs} | Loss: {epoch_loss:.6f}")
 
             if epoch_callback is not None and (callback_epochs is None or epoch in callback_epochs):
-                epoch_callback(epoch, self)
+                if epoch_callback(epoch, self):
+                    break
 
         return history
