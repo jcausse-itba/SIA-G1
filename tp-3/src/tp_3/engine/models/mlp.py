@@ -55,9 +55,10 @@ class MLP(BaseModel):
 
         for layer in reversed(self.layers):
             grad_input, grad_W, grad_b = layer.backward(grad_input)
-            # Insert at beginning to preserve layer order [layer_0, layer_1, ...]
-            grads.insert(0, (grad_W, grad_b))
+            grads.append((grad_W, grad_b))
 
+        # Reverse once at the end to preserve layer order [layer_0, layer_1, ...]
+        grads.reverse()
         return grads
 
     def fit(
