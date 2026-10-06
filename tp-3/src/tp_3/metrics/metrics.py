@@ -41,8 +41,6 @@ def threshold_sweep(
     actual: NDArray[np.bool_], scores: NDArray, n_points: int = DEFAULT_POINTS
 ) -> dict[str, NDArray]:
     """Metrics for `n_points` thresholds evenly spaced in [0, 1]."""
-    if n_points < 1:
-        raise ValueError(f"metrics_points must be at least 1, got {n_points}.")
     thresholds = np.linspace(0.0, 1.0, n_points)
     rows = [binary_metrics(actual, scores, t) for t in thresholds]
     out: dict[str, NDArray] = {"threshold": thresholds}
