@@ -86,6 +86,68 @@ def _dual_axis(
     _save(fig, path, title)
 
 
+def _split_metrics_plot(
+    xs: list,
+    groups: list[list[dict]],
+    xtitle: str,
+    path: Path,
+    title: str,
+    hover: list[str] | None = None,
+) -> None:
+    """Genera dos gráficos separados en subplots para Accuracy y Loss."""
+    fig = make_subplots(
+        rows=1,
+        cols=2,
+        subplot_titles=("Accuracy vs Optimizer", "Loss vs Optimizer"),
+        horizontal_spacing=0.12,
+    )
+
+    traces = (("val", "Validation", 1.0), ("train", "Training", 0.5))
+
+    for split, name, opacity in traces:
+        # Subplot Accuracy
+        stats_acc = [_summary(g, f"final_{split}_acc") for g in groups]
+        ys_acc, errs_acc = [s[0] for s in stats_acc], [s[1] for s in stats_acc]
+        fig.add_trace(
+            go.Bar(
+                x=xs,
+                y=ys_acc,
+                name=f"Accuracy ({name})",
+                marker_color=ACC,
+                opacity=opacity,
+                error_y={"type": "data", "array": errs_acc, "visible": any(e > 0 for e in errs_acc)},
+                text=hover,
+            ),
+            row=1,
+            col=1,
+        )
+
+        # Subplot Loss
+        stats_loss = [_summary(g, f"final_{split}_loss") for g in groups]
+        ys_loss, errs_loss = [s[0] for s in stats_loss], [s[1] for s in stats_loss]
+        fig.add_trace(
+            go.Bar(
+                x=xs,
+                y=ys_loss,
+                name=f"Loss ({name})",
+                marker_color=LOSS,
+                opacity=opacity,
+                error_y={"type": "data", "array": errs_loss, "visible": any(e > 0 for e in errs_loss)},
+                text=hover,
+            ),
+            row=1,
+            col=2,
+        )
+
+    fig.update_xaxes(title_text=xtitle, row=1, col=1)
+    fig.update_xaxes(title_text=xtitle, row=1, col=2)
+    fig.update_yaxes(title_text="Accuracy", range=[0, 1.02], row=1, col=1)
+    fig.update_yaxes(title_text="Loss", rangemode="tozero", row=1, col=2)
+
+    fig.update_layout(barmode="group")
+    _save(fig, path, title)
+
+
 def _curves(groups: list[tuple[Any, list[dict]]], path: Path, title: str) -> None:
     """Learning curves (first seed for each configuration): loss and accuracy per epoch."""
     fig = make_subplots(
@@ -145,13 +207,12 @@ def write_ej2_plots(out_dir: str | Path, results: dict | None = None) -> list[Pa
 
     groups = _groups(runs, "optimizer")
     if groups:
-        _dual_axis(
+        _split_metrics_plot(
             [k for k, _ in groups],
             [g for _, g in groups],
             "Optimizer",
             out / "optimizer_sweep.html",
-            f"Accuracy (bars) and Loss (diamonds) vs Optimizer (lr={meta.get('base_lr')}; {note})",
-            bars=True,
+            f"Accuracy and Loss vs Optimizer (lr={meta.get('base_lr')}; {note})",
         )
         _curves(groups, out / "optimizer_curves.html", "Learning curves by optimizer")
         written += [out / "optimizer_sweep.html", out / "optimizer_curves.html"]
