@@ -9,9 +9,6 @@ METRIC_NAMES = ("accuracy", "precision", "recall", "f1", "tpr", "fpr")
 
 
 def select_epochs(total_epochs: int, n_points: int = DEFAULT_POINTS) -> NDArray[np.int64]:
-    """Epochs (1-based) at which metrics are evaluated: the first `n_points` epochs (all of them if fewer)."""
-    if n_points < 1:
-        raise ValueError(f"metrics_points must be at least 1, got {n_points}.")
     return np.arange(1, min(total_epochs, n_points) + 1)
 
 
