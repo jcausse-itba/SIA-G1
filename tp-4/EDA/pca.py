@@ -21,11 +21,12 @@ def get_pca(df, q=2):
     return components, loadings_df
 
 def create_boxplot(df_pca):
-    fig = px.box(df_pca, title="Boxplot de Componentes Principales")
+    fig = px.box(df_pca.drop(columns=['name'], errors='ignore'), title="Boxplot de Componentes Principales")
     fig.write_html("pca_boxplot.html")
 
 def create_biplot(df_pca, loadings_df):
-    fig = px.scatter(df_pca, x='PC1', y='PC2', title="Biplot PC1 vs PC2")
+    fig = px.scatter(df_pca, x='PC1', y='PC2', text='name', title="Biplot PC1 vs PC2")
+    fig.update_traces(textposition='top center')
     
     scale = max(df_pca['PC1'].max(), df_pca['PC2'].max()) / max(loadings_df['PC1'].max(), loadings_df['PC2'].max())
     
@@ -40,7 +41,7 @@ def create_biplot(df_pca, loadings_df):
 
 def create_index_plot(df_pca):
     df_pca = df_pca.sort_values(by='PC1', ascending=False).reset_index()
-    fig = px.bar(df_pca, y='PC1', title="Índice de PC1")
+    fig = px.bar(df_pca, x='name', y='PC1', title="Índice de PC1")
     fig.write_html("pca_indice.html")
 
 def main():
@@ -48,6 +49,7 @@ def main():
     df_num = df.select_dtypes(include='number')
     
     df_pca, loadings_df = get_pca(df_num, q=2)
+    df_pca['name'] = df['name']
     
     create_boxplot(df_pca)
     create_biplot(df_pca, loadings_df)
