@@ -18,5 +18,6 @@ fig_corr.write_html("correlacion.html")
 order = leaves_list(linkage(corr_matrix, method='ward'))
 corr_matrix_clustered = corr_matrix.iloc[order, order]
 fig_corr_clust = px.imshow(corr_matrix_clustered, title="Matriz de Correlación Agrupada", text_auto=True, 
-                           color_continuous_scale=['red', 'white', 'green'], color_continuous_midpoint=0)
+                           color_continuous_scale=['red', 'white', 'green'], color_continuous_midpoint=0,
+                           width=775, height=775)
 fig_corr_clust.write_html("correlacion_agrupada.html")
