@@ -259,6 +259,18 @@ wheels = [
 name = "tp-4"
 version = "0.1.0"
 source = { virtual = "." }
+dependencies = [
+    { name = "commons" },
+    { name = "ej1" },
+    { name = "ej2" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "commons", editable = "packages/commons" },
+    { name = "ej1", editable = "packages/ej1" },
+    { name = "ej2", editable = "packages/ej2" },
+]
 
 [[package]]
 name = "tzdata"

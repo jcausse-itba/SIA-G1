@@ -1,0 +1,18 @@
+# Punto 2.2 - Patrón muy ruidoso para identificar un estado espúreo.
+# Nota: con ruido > 0.5 la red tiende al patrón invertido (-x también es atractor).
+# uv run ej2 -c configs/ej2/04_letras_espurio.toml
+
+task = "letters"
+output_dir = "output/ej2/letras/espurio"
+
+[patterns]
+letters = ["J", "A", "L", "O"]
+
+[network]
+update_mode = "asynchronous"
+max_iterations = 100
+
+[noise]
+noise_levels = [0.2, 0.3, 0.4, 0.5]
+trials = 50
+spurious_noise = 0.5

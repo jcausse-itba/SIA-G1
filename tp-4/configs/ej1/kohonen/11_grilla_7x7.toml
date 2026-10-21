@@ -1,0 +1,20 @@
+# Punto 2 - Variación de grilla: 49 neuronas (~1 por muestra).
+# uv run ej1 -c configs/ej1/kohonen/11_grilla_7x7.toml
+
+task = "kohonen"
+output_dir = "output/ej1/kohonen/grilla_7x7"
+
+[data]
+dataset_path = "datos/creadores.csv"
+exclude_features = ["price_ars", "organic_posts_pct", "total_engagement_per_1000", "estimated_argentina_reach"]  # derivadas exactas detectadas en el EDA
+
+[kohonen]
+grid_rows = 7
+grid_cols = 7
+iterations = 5000
+init_method = "sample"
+initial_lr = 0.5
+final_lr = 0.01
+initial_radius = "none"  # none = max(filas, columnas)/2
+final_radius = 1.0
+n_runs = 10

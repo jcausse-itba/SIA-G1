@@ -1,0 +1,12 @@
+# Punto 1 - PCA con todas las variables.
+# Sirve para mostrar el efecto de la redundancia (precio en USD/ARS, organic/sponsored, etc.).
+# uv run ej1 -c configs/ej1/02_pca_todas.toml
+
+task = "pca"
+output_dir = "output/ej1/pca/todas"
+
+[data]
+dataset_path = "datos/creadores.csv"
+
+[pca]
+n_components = "none"  # todas: para el scree plot y la varianza acumulada

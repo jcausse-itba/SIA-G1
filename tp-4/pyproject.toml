@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "SIA TP4"
 readme = "README.md"
 requires-python = ">=3.14"
-dependencies = []
+dependencies = ["commons", "ej1", "ej2"]
 
 [tool.uv.workspace]
 members = [
@@ -12,6 +12,11 @@ members = [
     "packages/ej2",
     "packages/commons",
 ]
+
+[tool.uv.sources]
+commons = { workspace = true }
+ej1 = { workspace = true }
+ej2 = { workspace = true }
 
 [tool.uv]
 package = false

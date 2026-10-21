@@ -1,0 +1,20 @@
+# Punto 2 - Pesos iniciales aleatorios (en lugar de muestras reales).
+# uv run ej1 -c configs/ej1/kohonen/50_init_random.toml
+
+task = "kohonen"
+output_dir = "output/ej1/kohonen/init_random"
+
+[data]
+dataset_path = "datos/creadores.csv"
+exclude_features = ["price_ars", "organic_posts_pct", "total_engagement_per_1000", "estimated_argentina_reach"]  # derivadas exactas detectadas en el EDA
+
+[kohonen]
+grid_rows = 5
+grid_cols = 5
+iterations = 5000
+init_method = "random"
+initial_lr = 0.5
+final_lr = 0.01
+initial_radius = "none"  # none = max(filas, columnas)/2
+final_radius = 1.0
+n_runs = 10

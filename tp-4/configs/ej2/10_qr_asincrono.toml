@@ -1,0 +1,17 @@
+# Punto 2.1 - QR 37x37, actualización asincrónica (config base).
+# uv run ej2 -c configs/ej2/10_qr_asincrono.toml
+
+task = "qr"
+output_dir = "output/ej2/qr/asincrono"
+
+[patterns]
+dataset_path = "datos/hopfield"
+
+[network]
+update_mode = "asynchronous"
+max_iterations = 100
+
+[noise]
+noise_levels = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+trials = 20
+spurious_noise = 0.4

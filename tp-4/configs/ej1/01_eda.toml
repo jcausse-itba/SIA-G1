@@ -1,0 +1,8 @@
+# Punto 1 - EDA sobre TODAS las variables (todavía sin descartar nada).
+# uv run ej1 -c configs/ej1/01_eda.toml
+
+task = "eda"
+output_dir = "output/ej1/eda"
+
+[data]
+dataset_path = "datos/creadores.csv"

@@ -1,0 +1,32 @@
+# Corrida completa con la configuración FINAL elegida.
+# Actualizar [kohonen] con la combinación ganadora de configs/ej1/kohonen/*.
+# uv run ej1 -c configs/ej1/99_todo.toml
+
+task = "all"
+output_dir = "output/ej1/final"
+
+[data]
+dataset_path = "datos/creadores.csv"
+exclude_features = ["price_ars", "organic_posts_pct", "total_engagement_per_1000", "estimated_argentina_reach"]  # derivadas exactas detectadas en el EDA
+
+[pca]
+n_components = "none"
+
+[kohonen]
+grid_rows = 5
+grid_cols = 5
+iterations = 5000
+init_method = "sample"
+initial_lr = 0.5
+final_lr = 0.01
+initial_radius = 2.5
+final_radius = 1.0
+n_runs = 10
+
+[oja]
+oja_lr = 0.001
+oja_epochs = 500
+
+[campaign]
+campaign = "football"
+top_n = 10
