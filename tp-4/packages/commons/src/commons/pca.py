@@ -21,7 +21,7 @@ def get_pca(df, q=2):
     return components, loadings_df
 
 def create_boxplot(df_pca):
-    fig = px.box(df_pca.drop(columns=['name'], errors='ignore'), title="Boxplot de Componentes Principales")
+    fig = px.box(df_pca.drop(columns=['creator_id', 'name'], errors='ignore'), title="Boxplot de Componentes Principales")
     fig.write_html("pca_boxplot.html")
 
 def create_biplot(df_pca, loadings_df):
@@ -48,12 +48,17 @@ def main():
     df = pd.read_csv('./data/creadores.csv')
     df_num = df.select_dtypes(include='number')
     
-    df_pca, loadings_df = get_pca(df_num, q=2)
+    df_pca, loadings_df = get_pca(df_num, q=df_num.shape[1])
+    df_pca['creator_id'] = df['creator_id']
     df_pca['name'] = df['name']
     
     create_boxplot(df_pca)
     create_biplot(df_pca, loadings_df)
     create_index_plot(df_pca)
+
+    pca_cols = [c for c in df_pca.columns if c.startswith('PC')]
+    df_pca[['creator_id', 'name'] + pca_cols].to_csv('./data/creadores_pca_all.csv', index=False)
+    df_pca[['creator_id', 'name'] + pca_cols[:9]].to_csv('./data/creadores_pca_9.csv', index=False)
 
 if __name__ == "__main__":
     main()
