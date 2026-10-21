@@ -7,6 +7,55 @@ resolution-markers = [
     "sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 
+[manifest]
+members = [
+    "commons",
+    "ej1",
+    "ej2",
+    "tp-4",
+]
+
+[[package]]
+name = "commons"
+version = "0.1.0"
+source = { editable = "packages/commons" }
+dependencies = [
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "plotly" },
+    { name = "scipy" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "numpy", specifier = ">=2.5.4" },
+    { name = "pandas", specifier = ">=3.0.6" },
+    { name = "plotly", specifier = ">=7.1.0" },
+    { name = "scipy", specifier = ">=1.18.1" },
+]
+
+[[package]]
+name = "ej1"
+version = "0.1.0"
+source = { editable = "packages/ej1" }
+dependencies = [
+    { name = "commons" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "commons", editable = "packages/commons" }]
+
+[[package]]
+name = "ej2"
+version = "0.1.0"
+source = { editable = "packages/ej2" }
+dependencies = [
+    { name = "commons" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "commons", editable = "packages/commons" }]
+
 [[package]]
 name = "narwhals"
 version = "2.27.1"
@@ -209,19 +258,7 @@ wheels = [
 [[package]]
 name = "tp-4"
 version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "pandas" },
-    { name = "plotly" },
-    { name = "scipy" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "pandas", specifier = ">=3.0.6" },
-    { name = "plotly", specifier = ">=7.1.0" },
-    { name = "scipy", specifier = ">=1.18.1" },
-]
+source = { virtual = "." }
 
 [[package]]
 name = "tzdata"

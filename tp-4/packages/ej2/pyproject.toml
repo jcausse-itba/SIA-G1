@@ -1,0 +1,19 @@
+[project]
+name = "ej2"
+version = "0.1.0"
+description = "Hopfield"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "commons",
+]
+
+[project.scripts]
+ej2 = "ej2:main"
+
+[build-system]
+requires = ["uv_build>=0.12.10,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+commons = { workspace = true }
