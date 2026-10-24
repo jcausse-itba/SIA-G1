@@ -1,5 +1,7 @@
 __all__ = ["main"]
 
+import json
+import os
 import pprint
 from pathlib import Path
 from typing import Dict, Any
@@ -30,6 +32,9 @@ def dispatch(cfg: Dict[str, Any]) -> None:
 
 def main() -> None:
     cfg = parse_config(DATA_PATH)
+    os.makedirs(cfg["output_dir"], exist_ok=True)
+    with open(os.path.join(cfg["output_dir"], "config_usada.json"), "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2, ensure_ascii=False, default=str)
     print("Current configuration:")
     pprint.pprint(cfg)
     dispatch(cfg)

@@ -2,16 +2,17 @@
 
 UV ?= uv
 PYTHON ?= python3
+ARGS ?=
 
 .PHONY: ej1 ej2 clean help
 
-ej1: ## Sync dependencies and run Exercise 1
+ej1: ## Sync dependencies and run Exercise 1 (use ARGS="..." for CLI args)
 	$(UV) sync --package ej1
-	$(UV) run ej1
+	$(UV) run ej1 $(ARGS)
 
-ej2: ## Sync dependencies and run Exercise 2
+ej2: ## Sync dependencies and run Exercise 2 (use ARGS="..." for CLI args)
 	$(UV) sync --package ej2
-	$(UV) run ej2
+	$(UV) run ej2 $(ARGS)
 
 clean: ## Clean cache and temporary files
 	find . -type d -name "__pycache__" -exec rm -rf {} +

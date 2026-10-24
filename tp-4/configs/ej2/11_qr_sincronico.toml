@@ -5,7 +5,7 @@ task = "qr"
 output_dir = "output/ej2/qr/sincronico"
 
 [patterns]
-dataset_path = "datos/hopfield"
+dataset_path = "data/hopfield"
 
 [network]
 update_mode = "synchronous"

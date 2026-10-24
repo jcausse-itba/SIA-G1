@@ -13,6 +13,6 @@ update_mode = "asynchronous"
 max_iterations = 100
 
 [noise]
-noise_levels = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+noise_levels = [0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
 trials = 20
 spurious_noise = 0.4
