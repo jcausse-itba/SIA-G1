@@ -1,6 +1,6 @@
 """Punto 1: Análisis de Componentes Principales (implementación propia vía eigh)."""
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any, Dict, Hashable
 
 import numpy as np
 import pandas as pd
@@ -56,10 +56,11 @@ def biplot(pca: PCAResult, ds: Dataset, color=None, color_label: str = "", title
     L = pca.loadings[["PC1", "PC2"]]
     scale = 0.9 * sc[["PC1", "PC2"]].abs().to_numpy().max() / L.abs().to_numpy().max()
     for feat, (lx, ly) in L.iterrows():
+        feat_str = str(feat) if not isinstance(feat, str) else feat
         fig.add_annotation(x=lx * scale, y=ly * scale, ax=0, ay=0, xref="x", yref="y", axref="x", ayref="y",
                            showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1.2, arrowcolor="#c0392b",
                            text="", opacity=0.8)
-        fig.add_annotation(x=lx * scale * 1.08, y=ly * scale * 1.08, text=short(feat), showarrow=False,
+        fig.add_annotation(x=lx * scale * 1.08, y=ly * scale * 1.08, text=short(feat_str), showarrow=False,
                            font=dict(color="#c0392b", size=10))
     fig.update_yaxes(scaleanchor="x", scaleratio=1)
     return fig
@@ -89,20 +90,21 @@ def run_pca(ds: Dataset, cfg: Dict[str, Any]) -> PCAResult:
     k_show = min(6, pca.loadings.shape[1])
     L = pca.loadings.iloc[:, :k_show]
     save_csv(pca.loadings.round(4), out, "loadings", index=True)
-    fig = px.imshow(L, text_auto=".2f", color_continuous_scale=DIVERGING, zmin=-0.6, zmax=0.6,
+    fig = px.imshow(L, text_auto=True, color_continuous_scale=DIVERGING, zmin=-0.6, zmax=0.6,
                     aspect="auto", title="Loadings de las primeras componentes", height=800)
     save_fig(fig, out, "loadings")
 
     fig = make_subplots(rows=1, cols=2, subplot_titles=("Loadings PC1", "Loadings PC2"))
     for j, pc in enumerate(("PC1", "PC2"), start=1):
         s = pca.loadings[pc].sort_values()
-        fig.add_bar(x=s.values, y=s.index, orientation="h", row=1, col=j, showlegend=False,
-                    marker_color=np.where(s.values >= 0, "#1e8449", "#c0392b"))
+        s_vals = s.to_numpy()
+        fig.add_bar(x=s_vals, y=s.index, orientation="h", row=1, col=j, showlegend=False,
+                    marker_color=np.where(s_vals >= 0, "#1e8449", "#c0392b"))
     fig.update_layout(height=750)
     save_fig(fig, out, "loadings_pc1_pc2")
 
     # ---- Biplot (coloreado por temática dominante) + boxplot + índice PC1
-    dom = ds.raw.filter(like="topic_").idxmax(axis=1).str.replace("topic_", "").str.replace("_pct", "")
+    dom = ds.raw.filter(like="topic_").idxmax(axis=1).astype(str).str.replace("topic_", "", regex=False).str.replace("_pct", "", regex=False)
     save_fig(biplot(full, ds, color=dom.to_numpy(), color_label="tematica"), out, "biplot")
 
     k_box = min(10, full.scores.shape[1])

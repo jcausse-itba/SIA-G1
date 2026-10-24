@@ -48,7 +48,7 @@ def _scoring_frame(raw: pd.DataFrame) -> pd.DataFrame:
 
 
 def _z(df: pd.DataFrame, col: str) -> pd.Series:
-    s = np.log1p(df[col]) if col in LOG_VARS else df[col]
+    s = pd.Series(np.log1p(df[col]), index=df.index) if col in LOG_VARS else df[col]
     return (s - s.mean()) / s.std()
 
 
@@ -58,7 +58,11 @@ def objective_score(df: pd.DataFrame, campaign: str, objective: str) -> pd.Serie
         weights[k] = weights.get(k, 0) + v
     weights["sponsored_posts_pct"] = weights.get("sponsored_posts_pct", 0) - SPONSORED_PENALTY
     total = sum(abs(v) for v in weights.values())
-    return sum(w * _z(df, c) for c, w in weights.items()) / total
+    
+    res = pd.Series(0.0, index=df.index)
+    for c, w in weights.items():
+        res = res + w * _z(df, c)
+    return res / total
 
 
 def selection_metrics(df: pd.DataFrame, idx: pd.Index, topic_col: str, followers_idx: pd.Index) -> Dict[str, float]:

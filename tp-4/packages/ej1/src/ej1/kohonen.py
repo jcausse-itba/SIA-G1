@@ -3,7 +3,7 @@ import itertools
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Sequence, Union
 
 import numpy as np
 import pandas as pd
@@ -157,7 +157,7 @@ def neuron_regions(som: SOM, n_regions: int) -> np.ndarray:
 
 
 # =========================================================================== gráficos
-def _grid_heatmap(Z, title, text=None, hover=None, colorscale=SEQUENTIAL, zmid=None, fmt=".2f"):
+def _grid_heatmap(Z, title, text=None, hover=None, colorscale: str | Sequence[Any] = SEQUENTIAL, zmid=None, fmt=".2f"):
     rows, cols = Z.shape
     fig = go.Figure(go.Heatmap(
         z=Z, x=list(range(cols)), y=list(range(rows)), colorscale=colorscale, zmid=zmid,
@@ -198,7 +198,7 @@ def plot_som(som: SOM, ds: Dataset, pca_scores: pd.DataFrame | None, regions: np
                         for r in range(som.rows)])
     k = int(regions.max()) + 1
     colors = px.colors.qualitative.Set2
-    discrete = []  # escala escalonada: un color plano por región
+    discrete: list[Any] = []  # escala escalonada: un color plano por región
     for i in range(k):
         c = colors[i % len(colors)]
         discrete += [[i / k, c], [(i + 1) / k, c]]
@@ -259,7 +259,10 @@ def region_profiles(assign: pd.DataFrame, ds: Dataset) -> pd.DataFrame:
     prof = raw.groupby(assign["region"].to_numpy()).mean()
     prof.insert(0, "n_creadores", assign["region"].value_counts().sort_index())
     topics = prof.filter(like="topic_")
-    prof.insert(1, "tematica_dominante", topics.idxmax(axis=1).str.replace("topic_", "").str.replace("_pct", ""))
+    
+    dominating_topics = topics.idxmax(axis=1).astype(str).str.replace("topic_", "", regex=False).str.replace("_pct", "", regex=False)
+    prof.insert(1, "tematica_dominante", dominating_topics)
+    
     prof.insert(2, "miembros", assign.groupby("region")["name"].apply(lambda s: " ".join(s)))
     prof.index.name = "region"
     return prof

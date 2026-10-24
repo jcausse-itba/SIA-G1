@@ -44,6 +44,7 @@ def main() -> None:
 
     if task in ("oja", "all"):
         from .oja import run_oja
+        assert pca is not None, "El resultado de PCA es necesario para Oja"
         run_oja(ds, cfg, pca)
 
     if task in ("campaign", "all"):

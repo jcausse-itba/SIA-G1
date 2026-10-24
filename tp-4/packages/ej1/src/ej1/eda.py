@@ -1,6 +1,6 @@
 """Punto 1: Exploratory Data Analysis y justificación de la selección de variables."""
 import json
-from typing import Any, Dict
+from typing import Any, Dict, cast
 
 import numpy as np
 import pandas as pd
@@ -23,8 +23,8 @@ def _derived_checks(raw: pd.DataFrame) -> Dict[str, Any]:
     topic = raw.filter(like="topic_").sum(axis=1)
     content = raw.filter(like="content_").sum(axis=1)
     return {
-        "price_ars / price_usd (min, max)": [float((raw.price_ars / raw.price_usd).min()),
-                                              float((raw.price_ars / raw.price_usd).max())],
+        "price_ars / price_usd (min, max)": [float(raw.price_ars.div(raw.price_usd).min()),
+                                              float(raw.price_ars.div(raw.price_usd).max())],
         "max |total_engagement - sum(likes,comments,saves,shares)|":
             float((eng - raw.total_engagement_per_1000).abs().max()),
         "organic + sponsored (min, max)": [float((raw.organic_posts_pct + raw.sponsored_posts_pct).min()),
@@ -41,7 +41,7 @@ def _clustered_corr(corr: pd.DataFrame) -> pd.DataFrame:
     dist = np.clip(1 - corr.abs().to_numpy(), 0, None)
     np.fill_diagonal(dist, 0)
     order = leaves_list(linkage(squareform(dist, checks=False), method="average"))
-    return corr.iloc[order, order]
+    return cast(pd.DataFrame, corr.iloc[order, order])
 
 
 def run_eda(ds: Dataset, cfg: Dict[str, Any]) -> None:
@@ -63,20 +63,25 @@ def run_eda(ds: Dataset, cfg: Dict[str, Any]) -> None:
     # ---- Correlación (todas las numéricas, agrupada) y pares altamente correlacionados
     corr = num.corr()
     cc = _clustered_corr(corr)
-    fig = px.imshow(cc, text_auto=".2f", color_continuous_scale=DIVERGING, zmin=-1, zmax=1,
+    fig = px.imshow(cc, text_auto=".2f", color_continuous_scale=DIVERGING, zmin=-1, zmax=1,  # type: ignore[arg-type]
                     title="Matriz de correlación agrupada (todas las variables)", width=1100, height=1100)
     fig.update_traces(textfont_size=7)
     save_fig(fig, out, "correlacion_agrupada")
 
-    pairs = [(a, b, corr.loc[a, b]) for i, a in enumerate(corr.columns)
-             for b in corr.columns[i + 1:] if abs(corr.loc[a, b]) >= HIGH_CORR]
+    pairs = [
+        (a, b, float(val))  # type: ignore[arg-type]
+        for i, a in enumerate(corr.columns)
+        for b in corr.columns[i + 1:]
+        for val in [corr.loc[a, b]]
+        if abs(float(val)) >= HIGH_CORR  # type: ignore[arg-type]
+    ]
     pairs_df = pd.DataFrame(pairs, columns=["var_a", "var_b", "r"])
     pairs_df = pairs_df.reindex(pairs_df["r"].abs().sort_values(ascending=False).index)
     save_csv(pairs_df.round(4), out, "pares_alta_correlacion")
 
     # ---- Matriz de correlación de las features finales (después de log1p)
     fcorr = _clustered_corr(ds.transformed.corr())
-    fig = px.imshow(fcorr, text_auto=".2f", color_continuous_scale=DIVERGING, zmin=-1, zmax=1,
+    fig = px.imshow(fcorr, text_auto=".2f", color_continuous_scale=DIVERGING, zmin=-1, zmax=1,  # type: ignore[arg-type]
                     title="Correlación de las features seleccionadas (con log1p)", width=950, height=950)
     fig.update_traces(textfont_size=8)
     save_fig(fig, out, "correlacion_features")
@@ -84,7 +89,7 @@ def run_eda(ds: Dataset, cfg: Dict[str, Any]) -> None:
     # ---- Asimetría antes / después de log1p
     logs = [c for c in cfg["log_features"] if c in num.columns]
     sk = pd.DataFrame({"original": num[logs].skew(),
-                       "log1p": np.log1p(num[logs]).skew()}).reset_index(names="variable")
+                       "log1p": num[logs].apply(np.log1p).skew()}).reset_index(names="variable")
     fig = px.bar(sk.melt(id_vars="variable", var_name="escala", value_name="skew"),
                  x="variable", y="skew", color="escala", barmode="group",
                  title="Asimetría de conteos y precio: original vs log1p")
@@ -106,7 +111,7 @@ def run_eda(ds: Dataset, cfg: Dict[str, Any]) -> None:
 
     # ---- Perfil por temática dominante (para conectar con los clientes)
     topics = raw.filter(like="topic_")
-    dom = topics.idxmax(axis=1).str.replace("topic_", "").str.replace("_pct", "")
+    dom = topics.idxmax(axis=1).astype(str).str.replace("topic_", "").str.replace("_pct", "")
     prof = pd.concat([dom.rename("tematica_dominante"), num], axis=1).groupby("tematica_dominante").mean()
     prof.insert(0, "n", dom.value_counts())
     save_csv(prof.T.round(2), out, "perfil_por_tematica", index=True)
