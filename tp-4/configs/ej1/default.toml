@@ -2,43 +2,43 @@
 # Correr desde tp-4/:  uv run ej1 -c packages/ej1/configs/default.toml [--task kohonen ...]
 seed = 42
 task = "all"
-output-dir = "output/ej1"
+output_dir = "output/ej1"
 
 [data]
-dataset-path = "data/creadores.csv"
+dataset_path = "data/creadores.csv"
 # Derivadas exactas (price_ars, total_engagement, organic) + estimated_argentina_reach (producto,
 # se usa en el punto 4) + impressions/video_views (r >= 0.987 con average_reach).
-exclude-features = ["price_ars", "total_engagement_per_1000", "organic_posts_pct",
+exclude_features = ["price_ars", "total_engagement_per_1000", "organic_posts_pct",
                     "estimated_argentina_reach", "average_impressions", "average_video_views"]
-log-features = ["followers", "average_reach", "price_usd"]
+log_features = ["followers", "average_reach", "price_usd"]
 
 [pca]
-n-components = "none"
+n_components = "none"
 
 [kohonen]
-grid-rows = 5
-grid-cols = 5
+grid_rows = 5
+grid_cols = 5
 iterations = 5000
-init-method = "sample"
-initial-lr = 0.5
-final-lr = 0.01
-initial-radius = "none"   # max(filas, columnas)/2
-final-radius = 1.0
-n-runs = 10
-n-regions = 5
+init_method = "sample"
+initial_lr = 0.5
+final_lr = 0.01
+initial_radius = "none"   # max(filas, columnas)/2
+final_radius = 1.0
+n_runs = 10
+n_regions = 5
 
 [sweep]
-sweep-grids = ["3x3", "4x4", "5x5", "6x6", "7x7", "8x8", "10x10"]
-sweep-lrs = [0.1, 0.5, 0.9]
-sweep-radii = ["none", 2.0]
-sweep-iterations = [1000, 5000]
+sweep_grids = ["3x3", "4x4", "5x5", "6x6", "7x7", "8x8", "10x10"]
+sweep_lrs = [0.1, 0.5, 0.9]
+sweep_radii = ["none", 2.0]
+sweep_iterations = [1000, 5000]
 
 [oja]
-oja-lr = 0.001
-oja-epochs = 500
+oja_lr = 0.001
+oja_epochs = 500
 
 [campaign]
 campaign = "football"
 objective = "all"         # compara reach / discovery / depth
-min-topic-pct = 30.0
-top-n = 5
+min_topic_pct = 30.0
+top_n = 5
