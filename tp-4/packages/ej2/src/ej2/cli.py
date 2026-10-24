@@ -1,5 +1,6 @@
 import argparse
 import os
+from pathlib import Path
 from typing import Any, Dict
 
 from commons.config import (
@@ -8,7 +9,7 @@ from commons.config import (
 )
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser(data_path: Path) -> argparse.ArgumentParser:
     p = build_base_parser("TP4 Ej.2 - Memoria asociativa (Hopfield)", prog="tp4-hopfield")
 
     p.add_argument_group("Pipeline").add_argument(
@@ -19,7 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
     d = p.add_argument_group("Patterns")
     d.add_argument("--letters", nargs="+", default=["A", "E", "J", "O"], metavar="LETTER",
                    help="Letras (matrices 5x5) a almacenar.")
-    d.add_argument("--dataset-path", type=str, default="datos/hopfield",
+    d.add_argument("--dataset-path", type=str, default=str(data_path),
                    help="Carpeta con las imágenes de los QR originales.")
 
     # ---- Red
@@ -60,7 +61,7 @@ def validate_config(cfg: Dict[str, Any]) -> None:
         require(len(imgs) >= 2, f"Need at least 2 QR images in {cfg['dataset_path']}.")
 
 
-def parse_config(argv=None) -> Dict[str, Any]:
-    cfg = load_and_merge_config(build_parser(), argv)
+def parse_config(data_path: Path, argv=None) -> Dict[str, Any]:
+    cfg = load_and_merge_config(build_parser(data_path), argv)
     validate_config(cfg)
     return cfg
