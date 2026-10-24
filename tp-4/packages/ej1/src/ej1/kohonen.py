@@ -295,6 +295,23 @@ def run_kohonen(ds: Dataset, cfg: Dict[str, Any], pca_scores: pd.DataFrame | Non
     print(f"[kohonen] Salidas en {out}/")
     return som, assign
 
+# HP_LABELS = {"grid": "grilla", "initial_lr": "lr inicial",
+#              "radius_rel": "radio relativo", "iterations": "iteraciones"}
+
+# def hyperparameter_importance(df: pd.DataFrame, metric: str) -> pd.Series:
+#     """Fracción de la varianza de `metric` explicada por cada hiperparámetro (eta^2).
+
+#     El barrido es una grilla completa y balanceada, así que los efectos principales son
+#     ortogonales. Se normaliza para que sumen 1 (igual que optuna.plot_param_importances).
+#     """
+#     y = df[metric].to_numpy(float)
+#     ss_tot = ((y - y.mean()) ** 2).sum()
+#     raw = {}
+#     for col in HP_LABELS:
+#         g = df.groupby(df[col].astype(str))[metric]
+#         raw[col] = (g.count() * (g.mean() - y.mean()) ** 2).sum() / ss_tot if ss_tot > 0 else 0.0
+#     total = sum(raw.values())
+#     return pd.Series({HP_LABELS[c]: (v / total if total > 0 else 0.0) for c, v in raw.items()}).sort_values()
 
 def run_sweep(ds: Dataset, cfg: Dict[str, Any]) -> pd.DataFrame:
     out = out_dir(cfg, "sweep")
@@ -309,6 +326,7 @@ def run_sweep(ds: Dataset, cfg: Dict[str, Any]) -> pd.DataFrame:
                             lr0=lr0, lr1=cfg["final_lr"], r0=r0, r1=cfg["final_radius"])
             rows.append({"grid": f"{r}x{c}", "neurons": r * c, "initial_lr": lr0,
                          "initial_radius": r0 if r0 is not None else som.default_radius(),
+                         "radius_rel": round((r0 if r0 is not None else som.default_radius()) / som.default_radius(), 2),
                          "radius_cfg": "auto" if r0 is None else r0,
                          "iterations": iters, "run": run, **som.metrics(ds.X)})
     df = pd.DataFrame(rows)
@@ -337,6 +355,19 @@ def run_sweep(ds: Dataset, cfg: Dict[str, Any]) -> pd.DataFrame:
     fig.update_layout(title=f"Barrido de hiperparámetros ({cfg['n_runs']} corridas por punto, media ± desvío)",
                       height=520, width=1400)
     save_fig(fig, out, "sweep")
+
+    # imp_fig = make_subplots(rows=1, cols=3, subplot_titles=[t for _, t in metrics])
+    # imp_rows = []
+    # for j, (m, _) in enumerate(metrics, start=1):
+    #     imp = hyperparameter_importance(df, m)
+    #     imp_rows += [{"metrica": m, "hiperparametro": k, "importancia": v} for k, v in imp.items()]
+    #     imp_fig.add_bar(x=imp.values, y=imp.index, orientation="h", showlegend=False,
+    #                     text=[f"{v:.2f}" for v in imp.values], textposition="outside", row=1, col=j)
+    # imp_fig.update_xaxes(range=[0, 1.1], title="Importancia")
+    # imp_fig.update_yaxes(title="Hiperparámetro", col=1)
+    # imp_fig.update_layout(title="Importancia de los hiperparámetros del SOM", height=420, width=1400)
+    # save_fig(imp_fig, out, "importancia_hiperparametros")
+    # save_csv(pd.DataFrame(imp_rows).round(4), out, "importancia_hiperparametros")
 
     print(f"[sweep] Listo en {time.time() - t0:.1f}s. Resumen (media):")
     with pd.option_context("display.width", 200, "display.max_rows", 200):
