@@ -5,7 +5,7 @@ task = "oja"
 output_dir = "output/ej1/oja/lr_bajo"
 
 [data]
-dataset_path = "datos/creadores.csv"
+dataset_path = "data/creadores.csv"
 exclude_features = ["price_ars", "organic_posts_pct", "total_engagement_per_1000", "estimated_argentina_reach"]  # derivadas exactas detectadas en el EDA
 
 [oja]

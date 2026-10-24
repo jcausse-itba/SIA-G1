@@ -6,7 +6,7 @@ output_dir = "output/ej2/final"
 
 [patterns]
 letters = ["J", "A", "L", "O"]
-dataset_path = "datos/hopfield"
+dataset_path = "data/hopfield"
 
 [network]
 update_mode = "asynchronous"

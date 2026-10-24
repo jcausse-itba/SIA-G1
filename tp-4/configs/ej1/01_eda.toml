@@ -5,4 +5,4 @@ task = "eda"
 output_dir = "output/ej1/eda"
 
 [data]
-dataset_path = "datos/creadores.csv"
+dataset_path = "data/creadores.csv"

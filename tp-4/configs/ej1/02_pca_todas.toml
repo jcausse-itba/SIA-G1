@@ -6,7 +6,7 @@ task = "pca"
 output_dir = "output/ej1/pca/todas"
 
 [data]
-dataset_path = "datos/creadores.csv"
+dataset_path = "data/creadores.csv"
 
 [pca]
 n_components = "none"  # todas: para el scree plot y la varianza acumulada
