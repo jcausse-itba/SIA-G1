@@ -46,6 +46,7 @@ def create_index_plot(df_pca):
     fig.write_html("pca_indice.html")
 
 def create_loadings_plot(loadings_df):
+    fig = go.Figure()
     
     for i, col in enumerate(loadings_df.columns):
         sorted_data = loadings_df[col].reindex(loadings_df[col].abs().sort_values(ascending=False).index)
