@@ -61,10 +61,20 @@ version = "0.1.0"
 source = { editable = "packages/ej2" }
 dependencies = [
     { name = "commons" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "plotly" },
+    { name = "scipy" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "commons", editable = "packages/commons" }]
+requires-dist = [
+    { name = "commons", editable = "packages/commons" },
+    { name = "numpy", specifier = ">=2.5.4" },
+    { name = "pandas", specifier = ">=3.0.6" },
+    { name = "plotly", specifier = ">=7.1.0" },
+    { name = "scipy", specifier = ">=1.18.1" },
+]
 
 [[package]]
 name = "narwhals"
