@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go
 
 def standardize(df):
     return (df - df.mean()) / df.std()
@@ -44,6 +45,39 @@ def create_index_plot(df_pca):
     fig = px.bar(df_pca, x='name', y='PC1', title="Índice de PC1")
     fig.write_html("pca_indice.html")
 
+def create_loadings_plot(loadings_df):
+    
+    for i, col in enumerate(loadings_df.columns):
+        sorted_data = loadings_df[col].reindex(loadings_df[col].abs().sort_values(ascending=False).index)
+        colors = ['green' if val > 0 else 'red' for val in sorted_data]
+        
+        fig.add_trace(go.Bar(
+            x=sorted_data.index, 
+            y=sorted_data, 
+            name=col,
+            visible=(i == 0),
+            marker_color=colors
+        ))
+        
+    buttons = []
+    for i, col in enumerate(loadings_df.columns):
+        visible = [False] * len(loadings_df.columns)
+        visible[i] = True
+        buttons.append(
+            dict(
+                label=col,
+                method="update",
+                args=[{"visible": visible}, 
+                      {"title": f"Pesos de las características en {col}"}]
+            )
+        )
+        
+    fig.update_layout(
+        updatemenus=[dict(active=0, buttons=buttons, x=0.1, xanchor="left", y=1.1, yanchor="top")],
+        title="Pesos de las características en PC1"
+    )
+    fig.write_html("pca_loadings.html")
+
 def main():
     df = pd.read_csv('./data/creadores.csv')
     df_num = df.select_dtypes(include='number')
@@ -55,6 +89,7 @@ def main():
     create_boxplot(df_pca)
     create_biplot(df_pca, loadings_df)
     create_index_plot(df_pca)
+    create_loadings_plot(loadings_df)
 
     pca_cols = [c for c in df_pca.columns if c.startswith('PC')]
     df_pca[['creator_id', 'name'] + pca_cols].to_csv('./data/creadores_pca_all.csv', index=False)
