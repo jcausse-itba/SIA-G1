@@ -93,7 +93,8 @@ def create_piechart(df_pca):
         values=variances,
         text=text_labels,
         textinfo='text',
-        showlegend=False
+        showlegend=False,
+        rotation=90
     )])
     
     fig.update_layout(title="Pesos de Componentes (Varianza)")
