@@ -213,9 +213,14 @@ def apply_noise(
     if n_flip >= n:
         return -noisy
 
-    if noise_type == "white" or shape is None:
+    if noise_type == "flip" or shape is None:
         idx = rng.choice(n, size=n_flip, replace=False)
         noisy[idx] *= -1
+        return noisy
+
+    if noise_type == "white" or shape is None:
+        idx = rng.choice(n, size=n_flip, replace=False)
+        noisy[idx] = -1
         return noisy
 
     rows, cols = shape

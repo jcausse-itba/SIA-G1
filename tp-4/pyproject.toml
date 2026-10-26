@@ -4,7 +4,12 @@ version = "0.1.0"
 description = "SIA TP4"
 readme = "README.md"
 requires-python = ">=3.14"
-dependencies = ["commons", "ej1", "ej2"]
+dependencies = [
+    "commons",
+    "ej1",
+    "ej2",
+    "pillow>=13.0.0",
+]
 
 [tool.uv.workspace]
 members = [

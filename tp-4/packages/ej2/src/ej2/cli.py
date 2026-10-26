@@ -32,7 +32,7 @@ def build_parser(data_path: Path) -> argparse.ArgumentParser:
 
     # ---- Ruido
     r = p.add_argument_group("Noise")
-    r.add_argument("--type", choices=("perlin", "finger", "white"), default="white", 
+    r.add_argument("--type", choices=("perlin", "finger", "white", "flip"), default="white", 
                    help="Función de ruido")
     r.add_argument("--noise-levels", nargs="+", type=unit_float,
                    default=[0.05, 0.10, 0.20, 0.30, 0.40, 0.50], metavar="P",
