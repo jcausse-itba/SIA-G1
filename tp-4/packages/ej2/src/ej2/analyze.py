@@ -57,8 +57,6 @@ _OUTCOME_KEYS = ("recovered", "other_stored", "inverted", "spurious", "cycle")
 # ──────────────────────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
 class AnalysisParams:
-    """Parámetros del análisis (se pueden construir desde el `cfg` del CLI con `from_cfg`)."""
-
     seed: int | None
     update_mode: str
     max_iterations: int
@@ -69,7 +67,8 @@ class AnalysisParams:
     capacity_noise: float = 0.12
     capacity_trials: int = 15
     max_capacity_p: int = 10
-    spurious_trials: int | None = None  # None -> max(4 * trials, 80) por patrón
+    spurious_trials: int | None = None
+    rule: str = "hebb"
 
     @classmethod
     def from_cfg(cls, cfg: Mapping[str, Any]) -> "AnalysisParams":
@@ -86,7 +85,8 @@ class AnalysisParams:
             capacity_noise=float(cfg.get("capacity_noise", 0.12)),
             capacity_trials=int(cfg.get("capacity_trials", 15)),
             max_capacity_p=int(cfg.get("max_capacity_p", 10)),
-            spurious_trials=None if spurious_trials is None else int(spurious_trials),
+            spurious_trials=None if spurious_trials is None else int(spuros_trials := spurious_trials),
+            rule=str(cfg.get("rule", "hebb")),
         )
 
 
@@ -438,7 +438,7 @@ def analyze_capacity(
         for p in range(1, min(params.max_capacity_p, len(seq)) + 1):
             sub_names = list(seq[:p])
             sub_pats = np.stack([pool[n] for n in sub_names], axis=0)
-            sub_net = HopfieldNetwork(sub_pats, sub_names)
+            sub_net = HopfieldNetwork(sub_pats, sub_names, rule=params.rule)
             max_p_plotted = max(max_p_plotted, p)
 
             ov = sub_net.orthogonality_matrix()

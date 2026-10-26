@@ -169,7 +169,8 @@ def run_qr_task(cfg: Dict[str, Any]) -> None:
     sub = "qr" if cfg.get("task") == "all" else ""
     out = out_dir(cfg, sub)
     names, patterns = load_qr_patterns(cfg["dataset_path"])
-    net = HopfieldNetwork(patterns, names)
+    params = AnalysisParams.from_cfg(cfg)
+    net = HopfieldNetwork(patterns, names, rule=params.rule)
     params = AnalysisParams.from_cfg(cfg)
 
     pool = {name: patterns[i] for i, name in enumerate(names)}

@@ -28,15 +28,9 @@ class HopfieldResult:
 
 
 class HopfieldNetwork:
-    """Red de Hopfield con regla de Hebb sobre patrones bipolares {-1, +1}.
+    """Red de Hopfield con regla de Hebb o Pseudoinversa sobre patrones bipolares {-1, +1}."""
 
-    Matriz de pesos:
-        W = (1 / N) * sum_{mu=1}^{P} xi^{mu} (xi^{mu})^T ,  con W_{ii} = 0.
-    Función de energía de Lyapunov:
-        E(s) = -1/2 * s^T W s.
-    """
-
-    def __init__(self, patterns: np.ndarray, names: Sequence[str] | None = None) -> None:
+    def __init__(self, patterns: np.ndarray, names: Sequence[str] | None = None, rule: str = "hebb") -> None:
         patterns = np.asarray(patterns, dtype=np.int8)
         if patterns.ndim != 2:
             raise ValueError(f"Expected 2D array of shape (P, N), got {patterns.shape}")
@@ -48,10 +42,18 @@ class HopfieldNetwork:
         self.names: List[str] = (
             list(names) if names is not None else [f"P{i}" for i in range(self.n_patterns)]
         )
+        self.rule: str = rule
 
-        # Regla de Hebb: W = (1/N) * K * K^T (donde K tiene a los patrones por columna)
         Xf = self.patterns.astype(np.float64)
-        self.W: np.ndarray = (Xf.T @ Xf) / self.n_neurons
+        if rule == "hebb":
+            # Regla de Hebb clásica
+            self.W = (Xf.T @ Xf) / self.n_neurons
+        elif rule == "pseudoinverse":
+            # Regla de la pseudoinversa (proyección) W = X^\dagger X
+            self.W = np.linalg.pinv(Xf) @ Xf
+        else:
+            raise ValueError(f"Unknown rule: {rule!r}")
+
         np.fill_diagonal(self.W, 0.0)
 
     def energy(self, state: np.ndarray) -> float:
