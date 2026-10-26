@@ -8,7 +8,7 @@ __all__ = [
 ]
 
 from dataclasses import dataclass
-from typing import List, Sequence, Tuple
+from typing import List, Sequence, Tuple, Optional
 
 import numpy as np
 from scipy.ndimage import gaussian_filter
@@ -45,12 +45,36 @@ class HopfieldNetwork:
         self.rule: str = rule
 
         Xf = self.patterns.astype(np.float64)
+
         if rule == "hebb":
-            # Regla de Hebb clásica
-            self.W = (Xf.T @ Xf) / self.n_neurons
+            # 1. Centrado y máscara solo para Hebb (evita la saturación del 70% constante)
+            self.pattern_mean = Xf.mean(axis=0)
+            Xf_train = Xf - self.pattern_mean
+            self.variable_mask = np.var(self.patterns, axis=0) > 1e-5
+            
+            # Regla de Hebb clásica sobre patrones centrados
+            self.W = (Xf_train.T @ Xf_train) / self.n_neurons
+            
         elif rule == "pseudoinverse":
+            # 2. La pseudoinversa trabaja con los patrones originales sin ceros artificiales
+            self.pattern_mean = np.zeros(self.n_neurons)
+            self.variable_mask = np.ones(self.n_neurons, dtype=bool) # Todas las neuronas participan
+            
             # Regla de la pseudoinversa (proyección) W = X^\dagger X
             self.W = np.linalg.pinv(Xf) @ Xf
+        elif rule == "storkey":
+            # 3. Regla de aprendizaje incremental de Storkey
+            self.pattern_mean = np.zeros(self.n_neurons)
+            self.variable_mask = np.ones(self.n_neurons, dtype=bool)
+            
+            W = np.zeros((self.n_neurons, self.n_neurons), dtype=np.float64)
+            for mu in range(self.n_patterns):
+                xi = Xf[mu]
+                h = W @ xi  # Campo local acumulado por los patrones anteriores
+                delta = np.outer(xi, xi) - np.outer(h, xi) - np.outer(xi, h)
+                W += delta / self.n_neurons
+                np.fill_diagonal(W, 0.0)
+            self.W = W
         else:
             raise ValueError(f"Unknown rule: {rule!r}")
 
@@ -86,6 +110,12 @@ class HopfieldNetwork:
         """Matriz de productos internos <xi^mu, xi^nu> en [-N, N]."""
         Xi = self.patterns.astype(np.int32)
         return Xi @ Xi.T
+        
+    def best_internal_dot_product(self) -> float:
+        """Encuentra el valor absoluto máximo del producto punto entre patrones distintos."""
+        dot_mat = self.dot_product_matrix()
+        np.fill_diagonal(dot_mat, 0)
+        return float(np.max(np.abs(dot_mat)))
 
     def predict(
         self,
@@ -104,7 +134,7 @@ class HopfieldNetwork:
 
         converged = False
         cycle_detected = False
-        cycle_steps_remaining: int | None = None
+        cycle_steps_remaining: Optional[int] = None
         it = 0
 
         for it in range(1, max_iterations + 1):
@@ -161,8 +191,8 @@ class HopfieldNetwork:
         self,
         state: np.ndarray,
         converged: bool,
-        target_idx: int | None = None,
-    ) -> Tuple[str, str | None, int | None]:
+        target_idx: Optional[int] = None,
+    ) -> Tuple[str, Optional[str], Optional[int]]:
         """Clasifica el estado final de la red.
 
         Retorna (outcome, matched_name, matched_idx):
@@ -198,12 +228,12 @@ def apply_noise(
     level: float,
     rng: np.random.Generator,
     noise_type: str = "white",
-    shape: Tuple[int, int] | None = None,
+    shape: Optional[Tuple[int, int]] = None,
 ) -> np.ndarray:
     """Aplica ruido invirtiendo exactamente round(level * N) píxeles del patrón.
 
     Tipos de ruido soportados:
-    - "white": selección uniforme sin reemplazo de round(level * N) píxeles.
+    - "white": simula desgaste real dónde se destiñen píxeles.
     - "finger": mancha conexa/circular centrada en un punto aleatorio (simula dedo/mancha).
     - "perlin": campo aleatorio espacialmente correlacionado (filtro gaussiano multi-escala).
     """
@@ -215,14 +245,14 @@ def apply_noise(
     if n_flip >= n:
         return -noisy
 
-    if noise_type == "flip" or shape is None:
-        idx = rng.choice(n, size=n_flip, replace=False)
-        noisy[idx] *= -1
-        return noisy
-
     if noise_type == "white" or shape is None:
         idx = rng.choice(n, size=n_flip, replace=False)
         noisy[idx] = -1
+        return noisy
+
+    if noise_type == "flip":
+        idx = rng.choice(n, size=n_flip, replace=False)
+        noisy[idx] *= -1
         return noisy
 
     rows, cols = shape
