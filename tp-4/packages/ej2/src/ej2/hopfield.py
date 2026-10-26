@@ -52,6 +52,7 @@ class HopfieldNetwork:
         if rule == "hebb":
             # Hebb puro (sin centrar) solo sobre los píxeles que varían entre patrones.
             self.pattern_mean = np.zeros(self.n_neurons)
+            #self.variable_mask = np.ones(self.n_neurons, dtype=bool)
             self.variable_mask = (self.patterns != self.patterns[0]).any(axis=0)
             Xv = Xf * self.variable_mask  # columnas comunes -> 0
             self.W = (Xv.T @ Xv) / self.n_neurons

@@ -22,6 +22,8 @@ def build_parser(data_path: Path) -> argparse.ArgumentParser:
                    help="Letras (matrices 5x5) a almacenar.")
     d.add_argument("--dataset-path", type=str, default=str(data_path),
                    help="Carpeta con las imágenes de los QR originales.")
+    d.add_argument("--optimize-rotations", action="store_true",
+                   help="Probar combinaciones de rotación (0, 90, 180, 270) para maximizar la ortogonalidad e independencia.")
 
     # ---- Red
     n = p.add_argument_group("Hopfield network")
