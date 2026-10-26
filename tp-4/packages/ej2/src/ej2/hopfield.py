@@ -44,29 +44,31 @@ class HopfieldNetwork:
         )
         self.rule: str = rule
 
+        # Valor de los píxeles comunes (solo relevantes donde variable_mask es False)
+        self.fixed_values: np.ndarray = self.patterns[0].copy()
+
         Xf = self.patterns.astype(np.float64)
 
         if rule == "hebb":
-            # 1. Centrado y máscara solo para Hebb (evita la saturación del 70% constante)
-            self.pattern_mean = Xf.mean(axis=0)
-            Xf_train = Xf - self.pattern_mean
-            self.variable_mask = np.var(self.patterns, axis=0) > 1e-5
-            
-            # Regla de Hebb clásica sobre patrones centrados
-            self.W = (Xf_train.T @ Xf_train) / self.n_neurons
-            
-        elif rule == "pseudoinverse":
-            # 2. La pseudoinversa trabaja con los patrones originales sin ceros artificiales
+            # Hebb puro (sin centrar) solo sobre los píxeles que varían entre patrones.
             self.pattern_mean = np.zeros(self.n_neurons)
-            self.variable_mask = np.ones(self.n_neurons, dtype=bool) # Todas las neuronas participan
-            
-            # Regla de la pseudoinversa (proyección) W = X^\dagger X
-            self.W = np.linalg.pinv(Xf) @ Xf
-        elif rule == "storkey":
-            # 3. Regla de aprendizaje incremental de Storkey
+            self.variable_mask = (self.patterns != self.patterns[0]).any(axis=0)
+            Xv = Xf * self.variable_mask  # columnas comunes -> 0
+            self.W = (Xv.T @ Xv) / self.n_neurons
+
+        elif rule == "pseudoinverse":
+            # La pseudoinversa trabaja con los patrones originales
             self.pattern_mean = np.zeros(self.n_neurons)
             self.variable_mask = np.ones(self.n_neurons, dtype=bool)
-            
+
+            # Regla de la pseudoinversa (proyección) W = X^\dagger X
+            self.W = np.linalg.pinv(Xf) @ Xf
+
+        elif rule == "storkey":
+            # Regla de aprendizaje incremental de Storkey
+            self.pattern_mean = np.zeros(self.n_neurons)
+            self.variable_mask = np.ones(self.n_neurons, dtype=bool)
+
             W = np.zeros((self.n_neurons, self.n_neurons), dtype=np.float64)
             for mu in range(self.n_patterns):
                 xi = Xf[mu]
@@ -110,7 +112,7 @@ class HopfieldNetwork:
         """Matriz de productos internos <xi^mu, xi^nu> en [-N, N]."""
         Xi = self.patterns.astype(np.int32)
         return Xi @ Xi.T
-        
+
     def best_internal_dot_product(self) -> float:
         """Encuentra el valor absoluto máximo del producto punto entre patrones distintos."""
         dot_mat = self.dot_product_matrix()
@@ -131,6 +133,11 @@ class HopfieldNetwork:
         s = np.asarray(query, dtype=np.int8).copy()
         states_hist: List[np.ndarray] = [s.copy()]
         energies: List[float] = [self.energy(s)]
+
+        # Repone la parte común conocida (W es 0 en esos píxeles, así que no cambia la energía)
+        const = ~self.variable_mask
+        if const.any():
+            s[const] = self.fixed_values[const]
 
         converged = False
         cycle_detected = False

@@ -174,10 +174,7 @@ def run_qr_task(cfg: Dict[str, Any]) -> None:
     params = AnalysisParams.from_cfg(cfg)
 
     pool = {name: patterns[i] for i, name in enumerate(names)}
-    ortho_seq = build_orthogonal_sequence(names, pool, max_p=len(names))
     capacity_sequences = {
-        "QR del menú (orden natural)": names,
-        "Secuencia optimizada (ortogonalidad)": ortho_seq,
     }
 
     # Ejecutar el análisis completo mediante analyze.py (incluyendo capacidad aleatoria recomendada para pocos patrones)
