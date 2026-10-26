@@ -79,6 +79,26 @@ def create_loadings_plot(loadings_df):
     )
     fig.write_html("pca_loadings.html")
 
+def create_piechart(df_pca):
+    pca_cols = [c for c in df_pca.columns if c.startswith('PC')]
+    
+    variances = df_pca[pca_cols].var()
+    var_pct = (variances / variances.sum()) * 100
+    cum_var_pct = var_pct.cumsum()
+    
+    text_labels = [f"{col}: {round(v, 2)}% - {round(cv, 2)}%" for col, v, cv in zip(pca_cols, var_pct, cum_var_pct)]
+    
+    fig = go.Figure(data=[go.Pie(
+        labels=pca_cols,
+        values=variances,
+        text=text_labels,
+        textinfo='text',
+        showlegend=False
+    )])
+    
+    fig.update_layout(title="Pesos de Componentes (Varianza)")
+    fig.write_html("pca_piechart.html")
+
 def main():
     df = pd.read_csv('./data/creadores.csv')
     df_num = df.select_dtypes(include='number')
@@ -91,6 +111,7 @@ def main():
     create_biplot(df_pca, loadings_df)
     create_index_plot(df_pca)
     create_loadings_plot(loadings_df)
+    create_piechart(df_pca)
 
     pca_cols = [c for c in df_pca.columns if c.startswith('PC')]
     df_pca[['creator_id', 'name'] + pca_cols].to_csv('./data/creadores_pca_all.csv', index=False)
