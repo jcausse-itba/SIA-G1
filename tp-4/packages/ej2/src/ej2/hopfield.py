@@ -244,6 +244,7 @@ def apply_noise(
 
     Tipos de ruido soportados:
     - "white": simula desgaste real dónde se destiñen píxeles.
+    - "flip": invierte aleatoriamente los pixeles elegidos.
     - "finger": mancha conexa/circular centrada en un punto aleatorio (simula dedo/mancha).
     - "perlin": campo aleatorio espacialmente correlacionado (filtro gaussiano multi-escala).
     """
@@ -272,7 +273,7 @@ def apply_noise(
         rr, cc = np.indices((rows, cols))
         dist = np.sqrt((rr - r0) ** 2 + (cc - c0) ** 2) + rng.normal(0, 0.35, size=(rows, cols))
         idx = np.argsort(dist.ravel())[:n_flip]
-        noisy[idx] *= -1
+        noisy[idx] = -1
         return noisy
 
     if noise_type == "perlin":
