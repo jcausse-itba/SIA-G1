@@ -2,7 +2,7 @@
 # Correr desde tp-4/:  uv run ej1 -c packages/ej1/configs/default.toml [--task kohonen ...]
 seed = 42
 task = "all"
-output_dir = "output/ej1"
+output_dir = "output/ej1/sweeper"
 
 [data]
 dataset_path = "data/creadores.csv"
@@ -21,17 +21,17 @@ grid_cols = 5
 iterations = 5000
 init_method = "sample"
 initial_lr = 0.5
-final_lr = 0.01
+final_lr = 0.001
 initial_radius = "none"   # max(filas, columnas)/2
 final_radius = 1.0
 n_runs = 10
 n_regions = 5
 
 [sweep]
-sweep_grids = ["3x3", "4x4", "5x5", "6x6", "7x7", "8x8", "10x10"]
-sweep_lrs = [0.1, 0.5, 0.9]
-sweep_radii = ["none", 2.0]
-sweep_iterations = [1000, 5000]
+sweep_grids = ["5x5"]
+sweep_lrs = [1, 5, 0.1, 0.5, 0.05, 0.01]
+sweep_radii = ["none"]
+sweep_iterations = [5000]
 
 [oja]
 oja_lr = 0.001

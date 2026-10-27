@@ -63,7 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Pesos iniciales: aleatorios o copias de muestras reales.")
     k.add_argument("--initial-lr", type=positive_float, default=0.5,
                    help="Learning rate inicial (decae linealmente).")
-    k.add_argument("--final-lr", type=positive_float, default=0.01,
+    k.add_argument("--final-lr", type=positive_float, default=0.001,
                    help="Learning rate final.")
     k.add_argument("--initial-radius", type=nullable_float, default=None,
                    help="Radio de vecindad inicial ('none' = max(filas, columnas)/2; decae linealmente).")
@@ -88,7 +88,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # ---- 3. Oja
     o = p.add_argument_group("Oja (punto 3)")
-    o.add_argument("--oja-lr", type=positive_float, default=1e-3, help="Learning rate de Oja.")
+    o.add_argument("--oja-lr", type=positive_float, default=0.0001, help="Learning rate de Oja.")
     o.add_argument("--oja-epochs", type=positive_int, default=500, help="Épocas de Oja.")
 
     # ---- 4. Decisión de campaña

@@ -2,19 +2,18 @@
 # uv run ej1 -c configs/ej1/kohonen/12_grilla_10x10.toml
 
 task = "kohonen"
-output_dir = "output/ej1/kohonen/grilla_10x10"
+output_dir = "output/ej1/kohonen/grilla_5x5"
 
 [data]
 dataset_path = "data/creadores.csv"
-exclude_features = ["price_ars", "organic_posts_pct", "total_engagement_per_1000", "estimated_argentina_reach"]  # derivadas exactas detectadas en el EDA
 
 [kohonen]
-grid_rows = 10
-grid_cols = 10
+grid_rows = 5
+grid_cols = 5
 iterations = 5000
 init_method = "sample"
 initial_lr = 0.5
-final_lr = 0.01
+final_lr = 0.001
 initial_radius = "none"  # none = max(filas, columnas)/2
 final_radius = 1.0
 n_runs = 10

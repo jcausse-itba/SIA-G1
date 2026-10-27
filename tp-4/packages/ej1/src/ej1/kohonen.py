@@ -103,8 +103,18 @@ class SOM:
                 "dead_neurons": self.dead_ratio(X)}
 
     def save(self, path: str, ds: Dataset) -> None:
-        np.savez(path, W=self.W, rows=self.rows, cols=self.cols, features=np.array(ds.features),
-                 log_features=np.array(ds.log_features), mean=ds.mean, std=ds.std)
+        save_data = {
+            "W": self.W,
+            "rows": self.rows,
+            "cols": self.cols,
+            "features": np.array(ds.features),
+            "mean": ds.mean,
+            "std": ds.std,
+        }
+        if hasattr(ds, "log_features"):
+            save_data["log_features"] = np.array(ds.log_features)
+            
+        np.savez(path, **save_data)
 
 
 # =========================================================================== entrenamiento
@@ -332,42 +342,33 @@ def run_sweep(ds: Dataset, cfg: Dict[str, Any]) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     save_csv(df.round(5), out, "sweep_corridas")
 
-    keys = ["grid", "neurons", "initial_lr", "radius_cfg", "iterations"]
+    # Claves ordenadas para agrupar por initial_lr en el eje X
+    keys = ["initial_lr", "grid", "neurons", "radius_cfg", "iterations"]
     agg = (df.groupby(keys, sort=False)[["quantization_error", "topographic_error", "dead_neurons"]]
              .agg(["mean", "std"]))
     agg.columns = [f"{a}_{b}" for a, b in agg.columns]
-    agg = agg.reset_index().sort_values(["neurons", "initial_lr"])
+    agg = agg.reset_index().sort_values(["initial_lr", "neurons"])
     save_csv(agg.round(5), out, "sweep_resumen")
 
-    # Un panel por métrica; una línea por (lr, radio, iteraciones); eje x = cantidad de neuronas.
+    # Un panel por métrica; una línea por combinación de (grilla, radio, iteraciones); eje x = initial_lr
     metrics = [("quantization_error", "Error de cuantización"), ("topographic_error", "Error topográfico"),
                ("dead_neurons", "Neuronas muertas")]
     fig = make_subplots(rows=1, cols=3, subplot_titles=[t for _, t in metrics])
     palette = px.colors.qualitative.Dark24
-    for i, ((lr0, rc, it), g) in enumerate(agg.groupby(["initial_lr", "radius_cfg", "iterations"], sort=False)):
-        label = f"lr0={lr0}, R0={rc}, it={it}"
+    for i, ((grid, rc, it), g) in enumerate(agg.groupby(["grid", "radius_cfg", "iterations"], sort=False)):
+        label = f"grilla={grid}, R0={rc}, it={it}"
         for j, (m, _) in enumerate(metrics):
-            fig.add_scatter(x=g["grid"], y=g[f"{m}_mean"], error_y=dict(type="data", array=g[f"{m}_std"]),
+            fig.add_scatter(x=g["initial_lr"], y=g[f"{m}_mean"], error_y=dict(type="data", array=g[f"{m}_std"]),
                             mode="lines+markers", name=label, legendgroup=label, showlegend=(j == 0),
                             line_color=palette[i % len(palette)], row=1, col=j + 1)
+    
+    # Configuramos el eje X como categórico o numérico según prefieras, asegurando legibilidad
+    fig.update_xaxes(title_text="Learning Rate Inicial (lr0)", type="category")
     fig.update_yaxes(tickformat=".0%", row=1, col=2)
     fig.update_yaxes(tickformat=".0%", row=1, col=3)
-    fig.update_layout(title=f"Barrido de hiperparámetros ({cfg['n_runs']} corridas por punto, media ± desvío)",
+    fig.update_layout(title=f"Barrido de hiperparámetros por Learning Rate ({cfg['n_runs']} corridas por punto)",
                       height=520, width=1400)
     save_fig(fig, out, "sweep")
-
-    # imp_fig = make_subplots(rows=1, cols=3, subplot_titles=[t for _, t in metrics])
-    # imp_rows = []
-    # for j, (m, _) in enumerate(metrics, start=1):
-    #     imp = hyperparameter_importance(df, m)
-    #     imp_rows += [{"metrica": m, "hiperparametro": k, "importancia": v} for k, v in imp.items()]
-    #     imp_fig.add_bar(x=imp.values, y=imp.index, orientation="h", showlegend=False,
-    #                     text=[f"{v:.2f}" for v in imp.values], textposition="outside", row=1, col=j)
-    # imp_fig.update_xaxes(range=[0, 1.1], title="Importancia")
-    # imp_fig.update_yaxes(title="Hiperparámetro", col=1)
-    # imp_fig.update_layout(title="Importancia de los hiperparámetros del SOM", height=420, width=1400)
-    # save_fig(imp_fig, out, "importancia_hiperparametros")
-    # save_csv(pd.DataFrame(imp_rows).round(4), out, "importancia_hiperparametros")
 
     print(f"[sweep] Listo en {time.time() - t0:.1f}s. Resumen (media):")
     with pd.option_context("display.width", 200, "display.max_rows", 200):

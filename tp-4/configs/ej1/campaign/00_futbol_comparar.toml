@@ -6,9 +6,8 @@ output_dir = "output/ej1/campaign/00_futbol_comparar"
 
 [data]
 dataset_path = "data/creadores.csv"
-exclude_features = ["price_ars", "organic_posts_pct", "total_engagement_per_1000", "estimated_argentina_reach"]  # derivadas exactas detectadas en el EDA
 
 [campaign]
 campaign = "football"
-top_n = 10
+top_n = 5
 # objective = "none"  # sin objetivo => compara reach / discovery / depth

@@ -137,10 +137,25 @@ def run_campaign(ds: Dataset, cfg: Dict[str, Any], campaign: str,
     for strat, idx in selections.items():
         plot.loc[idx, "estrategia"] = np.where(plot.loc[idx, "estrategia"] == "—", strat,
                                                plot.loc[idx, "estrategia"] + "+" + strat)
-    fig = px.scatter(plot, x="followers", y="alcance_arg_tematico", color="estrategia", size="price_usd",
-                     hover_name="name", log_x=True, log_y=True, size_max=28,
-                     title=f"Campaña {campaign}: followers vs alcance argentino en la temática "
-                           f"(tamaño = precio USD)")
+    # Mostrar el nombre sólo si pertenecen a alguna estrategia seleccionada
+    plot["label_name"] = np.where(plot["estrategia"] != "—", plot["name"], "")
+
+    fig = px.scatter(
+        plot, 
+        x="followers", 
+        y="alcance_arg_tematico", 
+        color="estrategia", 
+        size="price_usd",
+        hover_name="name", 
+        text="label_name",    # <--- Solo muestra el nombre de los elegidos por estrategia
+        log_x=True, 
+        log_y=True, 
+        size_max=28,
+        title=f"Campaña {campaign}: followers vs alcance argentino en la temática "
+              f"(tamaño = precio USD)"
+    )
+    
+    fig.update_traces(textposition='top center', textfont=dict(size=10))
     save_fig(fig, out, "selecciones")
 
     norm = comp.drop(["n", "solapamiento_con_followers"]).T
