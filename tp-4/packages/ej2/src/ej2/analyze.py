@@ -29,6 +29,7 @@ __all__ = [
 
 from dataclasses import dataclass
 import itertools
+import os
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
 import numpy as np
@@ -221,6 +222,13 @@ def add_pattern_heatmap(
         row=row,
         col=col,
     )
+
+
+def _encode_diff_grid(vec: np.ndarray, ref: np.ndarray, shape: Tuple[int, int]) -> np.ndarray:
+    """Codifica un estado bipolar en {-1, 0, +1} (int8), usando 0 donde difiere de `ref`."""
+    mat = np.asarray(vec, dtype=np.int8).reshape(shape)
+    ref_mat = np.asarray(ref, dtype=np.int8).reshape(shape)
+    return np.where(mat != ref_mat, np.int8(0), mat)
 
 
 def _add_capacity_vline(fig: go.Figure, x: float, n_cols: int) -> None:
@@ -882,6 +890,291 @@ def evaluate_noise_sweep(
             width=max(210 * n_cols, 750),
         )
         save_fig(fig_ex, out, f"ejemplos_recuperacion_{target_idx}")
+
+    # Gráfico 4: animación píxel a píxel en modo asincrónico (estilo GIF) para todos los patrones
+    if params.update_mode == "asynchronous" and levels:
+        nonzero_levels = [lvl for lvl in levels if lvl > 0] or levels
+        anim_level = min(nonzero_levels, key=lambda lvl: abs(lvl - 0.28))
+        anim_rng = np.random.default_rng(None if params.seed is None else params.seed + 503)
+
+        trajectories: List[List[np.ndarray]] = []
+        const_mask = ~net.variable_mask
+        for pat_idx, name in enumerate(net.names):
+            matched_ex = next((ex for ex in showcase[name] if ex.level == anim_level), None)
+            if matched_ex is not None:
+                s = np.asarray(matched_ex.query, dtype=np.int8).copy()
+            else:
+                s = apply_noise(
+                    net.patterns[pat_idx], anim_level, anim_rng, noise_type=params.noise_type, shape=shape
+                )
+
+            pixel_states: List[np.ndarray] = [s.copy()]
+            if const_mask.any():
+                for idx in anim_rng.permutation(np.flatnonzero(const_mask)):
+                    if s[idx] != net.fixed_values[idx]:
+                        s[idx] = net.fixed_values[idx]
+                        pixel_states.append(s.copy())
+
+            for _ in range(1, params.max_iterations + 1):
+                prev_s = s.copy()
+                order = anim_rng.permutation(net.n_neurons)
+                for idx in order:
+                    old_val = int(s[idx])
+                    h_i = float(net.W[idx] @ s)
+                    if h_i > 1e-12:
+                        s[idx] = 1
+                    elif h_i < -1e-12:
+                        s[idx] = -1
+                    if int(s[idx]) != old_val:
+                        pixel_states.append(s.copy())
+
+                if np.array_equal(s, prev_s) and net.is_fixed_point(s):
+                    break
+
+            trajectories.append(pixel_states)
+
+        p = net.n_patterns
+        total_flips = [len(traj) - 1 for traj in trajectories]
+        max_steps = max(total_flips, default=0)
+        grand_total_flips = sum(total_flips)
+        show_vals = n <= 100
+
+        def _frame_annotations(step: int, base_anns: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+            anns: List[Dict[str, Any]] = []
+            for pat_idx, name in enumerate(net.names):
+                changed_i = min(step, total_flips[pat_idx])
+                state_i = trajectories[pat_idx][changed_i]
+                err_i = hamming_distance(state_i, net.patterns[pat_idx])
+                done_mark = " ✓" if step >= total_flips[pat_idx] and total_flips[pat_idx] > 0 else ""
+                ann = dict(base_anns[pat_idx])
+                ann["text"] = (
+                    f"<b>{name}</b><br>"
+                    f"Cambiados: {changed_i} / {total_flips[pat_idx]} px{done_mark}<br>"
+                    f"<span style='font-size:11px;color:#666'>Dist. al original: {err_i} px</span>"
+                )
+                anns.append(ann)
+            return anns
+
+        def _frame_title(step: int) -> str:
+            changed_now = sum(min(step, tf) for tf in total_flips)
+            return (
+                f"Recuperación asincrónica píxel a píxel (ruido {anim_level:.0%}, {params.noise_type}) — "
+                f"Paso {step}/{max_steps} | Píxeles cambiados: {changed_now} / {grand_total_flips}"
+            )
+
+        fig_anim = make_subplots(
+            rows=1,
+            cols=p,
+            subplot_titles=list(net.names),
+            horizontal_spacing=0.04,
+        )
+        base_annotations = [dict(ann.to_plotly_json()) for ann in fig_anim.layout.annotations]
+
+        for pat_idx in range(p):
+            init_vec = trajectories[pat_idx][0]
+            hm_kwargs: Dict[str, Any] = {
+                "z": _encode_diff_grid(init_vec, net.patterns[pat_idx], shape),
+                "zmin": -1,
+                "zmax": 1,
+                "colorscale": _DIFF_SCALE,
+                "showscale": False,
+                "xgap": 2 if show_vals else 0,
+                "ygap": 2 if show_vals else 0,
+            }
+            if show_vals:
+                hm_kwargs["text"] = np.where(init_vec.reshape(shape) > 0, "+1", "-1").tolist()
+                hm_kwargs["texttemplate"] = "%{text}"
+                hm_kwargs["textfont"] = {"size": 10}
+            col_idx = pat_idx + 1
+            fig_anim.add_trace(go.Heatmap(**hm_kwargs), row=1, col=col_idx)
+            anchor = "x" if col_idx == 1 else f"x{col_idx}"
+            fig_anim.update_xaxes(
+                showticklabels=False, showgrid=False, zeroline=False, constrain="domain", row=1, col=col_idx
+            )
+            fig_anim.update_yaxes(
+                showticklabels=False,
+                showgrid=False,
+                zeroline=False,
+                autorange="reversed",
+                scaleanchor=anchor,
+                scaleratio=1,
+                constrain="domain",
+                row=1,
+                col=col_idx,
+            )
+
+        frames: List[go.Frame] = []
+        trace_indices = list(range(p))
+        for step in range(max_steps + 1):
+            frame_traces: List[go.Heatmap] = []
+            for pat_idx in range(p):
+                vec = trajectories[pat_idx][min(step, total_flips[pat_idx])]
+                tr_kwargs: Dict[str, Any] = {
+                    "z": _encode_diff_grid(vec, net.patterns[pat_idx], shape),
+                }
+                if show_vals:
+                    tr_kwargs["text"] = np.where(vec.reshape(shape) > 0, "+1", "-1").tolist()
+                frame_traces.append(go.Heatmap(**tr_kwargs))
+            frames.append(
+                go.Frame(
+                    data=frame_traces,
+                    traces=trace_indices,
+                    name=str(step),
+                    layout={
+                        "title": {"text": _frame_title(step)},
+                        "annotations": _frame_annotations(step, base_annotations),
+                    },
+                )
+            )
+
+        frame_ms = int(np.clip(round(7000 / max(max_steps, 1)), 25, 450))
+        fig_anim.frames = frames
+        fig_anim.update_layout(
+            template="plotly_white",
+            title={"text": _frame_title(0)},
+            annotations=_frame_annotations(0, base_annotations),
+            height=500,
+            width=max(250 * p, 960),
+            margin={"t": 125, "b": 115, "l": 30, "r": 30},
+            updatemenus=[
+                {
+                    "type": "buttons",
+                    "direction": "left",
+                    "showactive": False,
+                    "x": 0.0,
+                    "y": -0.06,
+                    "xanchor": "left",
+                    "yanchor": "top",
+                    "pad": {"r": 10, "t": 15},
+                    "buttons": [
+                        {
+                            "label": "▶ Reproducir",
+                            "method": "animate",
+                            "args": [
+                                None,
+                                {
+                                    "frame": {"duration": frame_ms, "redraw": True},
+                                    "transition": {"duration": 0},
+                                    "fromcurrent": True,
+                                    "mode": "immediate",
+                                },
+                            ],
+                        },
+                        {
+                            "label": "⏸ Pausar",
+                            "method": "animate",
+                            "args": [
+                                [None],
+                                {
+                                    "frame": {"duration": 0, "redraw": False},
+                                    "transition": {"duration": 0},
+                                    "mode": "immediate",
+                                },
+                            ],
+                        },
+                        {
+                            "label": "⏮ Reiniciar",
+                            "method": "animate",
+                            "args": [
+                                None,
+                                {
+                                    "frame": {"duration": frame_ms, "redraw": True},
+                                    "transition": {"duration": 0},
+                                    "fromcurrent": False,
+                                    "mode": "immediate",
+                                },
+                            ],
+                        },
+                    ],
+                }
+            ],
+            sliders=[
+                {
+                    "active": 0,
+                    "x": 0.24,
+                    "len": 0.76,
+                    "y": -0.04,
+                    "xanchor": "left",
+                    "yanchor": "top",
+                    "pad": {"b": 10, "t": 15},
+                    "currentvalue": {
+                        "prefix": "Paso (cambios por código): ",
+                        "visible": True,
+                        "font": {"size": 13},
+                    },
+                    "transition": {"duration": 0},
+                    "steps": [
+                        {
+                            "args": [
+                                [str(step)],
+                                {
+                                    "frame": {"duration": 0, "redraw": True},
+                                    "transition": {"duration": 0},
+                                    "mode": "immediate",
+                                },
+                            ],
+                            "label": f"{step} px",
+                            "method": "animate",
+                        }
+                        for step in range(max_steps + 1)
+                    ],
+                }
+            ],
+        )
+
+        os.makedirs(out, exist_ok=True)
+        anim_path = os.path.join(out, "recuperacion_pixel_a_pixel.html")
+        loop_script = f"""
+(function() {{
+    var gd = document.getElementById("{{plot_id}}");
+    if (!gd) return;
+    var animOpts = {{frame: {{duration: {frame_ms}, redraw: true}}, transition: {{duration: 0}}, mode: "immediate", fromcurrent: false}};
+    var lastFrame = "{max_steps}";
+    var looping = true;
+    var loopTimer = null;
+    function clearLoopTimer() {{
+        if (loopTimer !== null) {{
+            clearTimeout(loopTimer);
+            loopTimer = null;
+        }}
+    }}
+    gd.on("plotly_buttonclicked", function(evt) {{
+        clearLoopTimer();
+        var lbl = (evt && evt.button && evt.button.label) || "";
+        if (lbl.indexOf("Pausar") !== -1) {{
+            looping = false;
+        }} else {{
+            looping = true;
+            if (lbl.indexOf("Reproducir") !== -1 && gd._fullLayout && gd._fullLayout._currentFrame === lastFrame) {{
+                setTimeout(function() {{ Plotly.animate(gd, null, animOpts); }}, 20);
+            }}
+        }}
+    }});
+    gd.on("plotly_sliderchange", function(evt) {{
+        if (evt && evt.interaction) {{
+            looping = false;
+            clearLoopTimer();
+        }}
+    }});
+    gd.on("plotly_animated", function() {{
+        if (looping && gd._fullLayout && gd._fullLayout._currentFrame === lastFrame) {{
+            clearLoopTimer();
+            loopTimer = setTimeout(function() {{
+                if (looping) {{
+                    Plotly.animate(gd, null, animOpts);
+                }}
+            }}, 1200);
+        }}
+    }});
+    Plotly.animate(gd, null, animOpts);
+}})();
+"""
+        fig_anim.write_html(
+            anim_path,
+            include_plotlyjs="directory",
+            auto_play=False,
+            post_script=loop_script,
+        )
 
     return df_summary, df_by_pattern
 
