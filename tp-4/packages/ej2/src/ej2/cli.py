@@ -41,7 +41,7 @@ def build_parser(data_path: Path) -> argparse.ArgumentParser:
     r.add_argument("--type", choices=("perlin", "finger", "white", "flip"), default="white", 
                    help="Función de ruido")
     r.add_argument("--noise-levels", nargs="+", type=unit_float,
-                   default=[0.05, 0.10, 0.20, 0.30, 0.40, 0.50], metavar="P",
+                   default=[0, 0.05, 0.10, 0.20, 0.30, 0.40, 0.50, 0.65, 0.80, 0.95, 0.99], metavar="P",
                    help="Fracción de píxeles invertidos en cada consulta.")
     r.add_argument("--trials", type=positive_int, default=20,
                    help="Consultas ruidosas independientes por nivel de ruido y patrón.")
