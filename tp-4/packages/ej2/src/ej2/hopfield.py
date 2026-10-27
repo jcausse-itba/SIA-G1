@@ -8,7 +8,7 @@ __all__ = [
 ]
 
 from dataclasses import dataclass
-from typing import List, Sequence, Tuple
+from typing import List, Sequence, Tuple, Optional
 
 import numpy as np
 from scipy.ndimage import gaussian_filter
@@ -28,15 +28,9 @@ class HopfieldResult:
 
 
 class HopfieldNetwork:
-    """Red de Hopfield con regla de Hebb sobre patrones bipolares {-1, +1}.
+    """Red de Hopfield con regla de Hebb o Pseudoinversa sobre patrones bipolares {-1, +1}."""
 
-    Matriz de pesos:
-        W = (1 / N) * sum_{mu=1}^{P} xi^{mu} (xi^{mu})^T ,  con W_{ii} = 0.
-    Función de energía de Lyapunov:
-        E(s) = -1/2 * s^T W s.
-    """
-
-    def __init__(self, patterns: np.ndarray, names: Sequence[str] | None = None) -> None:
+    def __init__(self, patterns: np.ndarray, names: Sequence[str] | None = None, rule: str = "hebb") -> None:
         patterns = np.asarray(patterns, dtype=np.int8)
         if patterns.ndim != 2:
             raise ValueError(f"Expected 2D array of shape (P, N), got {patterns.shape}")
@@ -48,10 +42,45 @@ class HopfieldNetwork:
         self.names: List[str] = (
             list(names) if names is not None else [f"P{i}" for i in range(self.n_patterns)]
         )
+        self.rule: str = rule
 
-        # Regla de Hebb: W = (1/N) * K * K^T (donde K tiene a los patrones por columna)
+        # Valor de los píxeles comunes (solo relevantes donde variable_mask es False)
+        self.fixed_values: np.ndarray = self.patterns[0].copy()
+
         Xf = self.patterns.astype(np.float64)
-        self.W: np.ndarray = (Xf.T @ Xf) / self.n_neurons
+
+        if rule == "hebb":
+            # Hebb puro (sin centrar) solo sobre los píxeles que varían entre patrones.
+            self.pattern_mean = np.zeros(self.n_neurons)
+            #self.variable_mask = np.ones(self.n_neurons, dtype=bool)
+            self.variable_mask = (self.patterns != self.patterns[0]).any(axis=0)
+            Xv = Xf * self.variable_mask  # columnas comunes -> 0
+            self.W = (Xv.T @ Xv) / self.n_neurons
+
+        elif rule == "pseudoinverse":
+            # La pseudoinversa trabaja con los patrones originales
+            self.pattern_mean = np.zeros(self.n_neurons)
+            self.variable_mask = np.ones(self.n_neurons, dtype=bool)
+
+            # Regla de la pseudoinversa (proyección) W = X^\dagger X
+            self.W = np.linalg.pinv(Xf) @ Xf
+
+        elif rule == "storkey":
+            # Regla de aprendizaje incremental de Storkey
+            self.pattern_mean = np.zeros(self.n_neurons)
+            self.variable_mask = np.ones(self.n_neurons, dtype=bool)
+
+            W = np.zeros((self.n_neurons, self.n_neurons), dtype=np.float64)
+            for mu in range(self.n_patterns):
+                xi = Xf[mu]
+                h = W @ xi  # Campo local acumulado por los patrones anteriores
+                delta = np.outer(xi, xi) - np.outer(h, xi) - np.outer(xi, h)
+                W += delta / self.n_neurons
+                np.fill_diagonal(W, 0.0)
+            self.W = W
+        else:
+            raise ValueError(f"Unknown rule: {rule!r}")
+
         np.fill_diagonal(self.W, 0.0)
 
     def energy(self, state: np.ndarray) -> float:
@@ -85,6 +114,12 @@ class HopfieldNetwork:
         Xi = self.patterns.astype(np.int32)
         return Xi @ Xi.T
 
+    def best_internal_dot_product(self) -> float:
+        """Encuentra el valor absoluto máximo del producto punto entre patrones distintos."""
+        dot_mat = self.dot_product_matrix()
+        np.fill_diagonal(dot_mat, 0)
+        return float(np.max(np.abs(dot_mat)))
+
     def predict(
         self,
         query: np.ndarray,
@@ -100,9 +135,14 @@ class HopfieldNetwork:
         states_hist: List[np.ndarray] = [s.copy()]
         energies: List[float] = [self.energy(s)]
 
+        # Repone la parte común conocida (W es 0 en esos píxeles, así que no cambia la energía)
+        const = ~self.variable_mask
+        if const.any():
+            s[const] = self.fixed_values[const]
+
         converged = False
         cycle_detected = False
-        cycle_steps_remaining: int | None = None
+        cycle_steps_remaining: Optional[int] = None
         it = 0
 
         for it in range(1, max_iterations + 1):
@@ -159,8 +199,8 @@ class HopfieldNetwork:
         self,
         state: np.ndarray,
         converged: bool,
-        target_idx: int | None = None,
-    ) -> Tuple[str, str | None, int | None]:
+        target_idx: Optional[int] = None,
+    ) -> Tuple[str, Optional[str], Optional[int]]:
         """Clasifica el estado final de la red.
 
         Retorna (outcome, matched_name, matched_idx):
@@ -196,12 +236,12 @@ def apply_noise(
     level: float,
     rng: np.random.Generator,
     noise_type: str = "white",
-    shape: Tuple[int, int] | None = None,
+    shape: Optional[Tuple[int, int]] = None,
 ) -> np.ndarray:
     """Aplica ruido invirtiendo exactamente round(level * N) píxeles del patrón.
 
     Tipos de ruido soportados:
-    - "white": selección uniforme sin reemplazo de round(level * N) píxeles.
+    - "white": simula desgaste real dónde se destiñen píxeles.
     - "finger": mancha conexa/circular centrada en un punto aleatorio (simula dedo/mancha).
     - "perlin": campo aleatorio espacialmente correlacionado (filtro gaussiano multi-escala).
     """
@@ -213,14 +253,14 @@ def apply_noise(
     if n_flip >= n:
         return -noisy
 
-    if noise_type == "flip" or shape is None:
-        idx = rng.choice(n, size=n_flip, replace=False)
-        noisy[idx] *= -1
-        return noisy
-
     if noise_type == "white" or shape is None:
         idx = rng.choice(n, size=n_flip, replace=False)
         noisy[idx] = -1
+        return noisy
+
+    if noise_type == "flip":
+        idx = rng.choice(n, size=n_flip, replace=False)
+        noisy[idx] *= -1
         return noisy
 
     rows, cols = shape

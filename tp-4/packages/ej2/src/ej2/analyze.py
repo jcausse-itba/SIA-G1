@@ -8,6 +8,7 @@ solo aporta sus patrones y llama a `run_full_analysis`.
 
 __all__ = [
     "HOPFIELD_CAPACITY_RATIO",
+    "TARGET_IDX",
     "AnalysisParams",
     "OrthogonalityResult",
     "AnalysisResults",
@@ -15,6 +16,7 @@ __all__ = [
     "add_pattern_heatmap",
     "plot_stored_patterns",
     "analyze_orthogonality",
+    "find_globally_optimal_sequence",
     "build_orthogonal_sequence",
     "analyze_capacity",
     "analyze_random_capacity",
@@ -26,6 +28,7 @@ __all__ = [
 ]
 
 from dataclasses import dataclass
+import itertools
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
 import numpy as np
@@ -38,6 +41,7 @@ from .plots import BINARY_SCALE, DIVERGING, format_ascii_grid, save_csv, save_fi
 
 # Capacidad teórica de Hopfield con patrones aleatorios: P_max ≈ 0.138 · N
 HOPFIELD_CAPACITY_RATIO = 0.138
+TARGET_IDX = 1  
 
 _EPS = 1e-12
 _PALETTE = ["#1e8449", "#2980b9", "#c0392b", "#f39c12", "#8e44ad", "#16a085", "#d35400", "#2c3e50"]
@@ -57,8 +61,6 @@ _OUTCOME_KEYS = ("recovered", "other_stored", "inverted", "spurious", "cycle")
 # ──────────────────────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
 class AnalysisParams:
-    """Parámetros del análisis (se pueden construir desde el `cfg` del CLI con `from_cfg`)."""
-
     seed: int | None
     update_mode: str
     max_iterations: int
@@ -69,7 +71,8 @@ class AnalysisParams:
     capacity_noise: float = 0.12
     capacity_trials: int = 15
     max_capacity_p: int = 10
-    spurious_trials: int | None = None  # None -> max(4 * trials, 80) por patrón
+    spurious_trials: int | None = None
+    rule: str = "hebb"
 
     @classmethod
     def from_cfg(cls, cfg: Mapping[str, Any]) -> "AnalysisParams":
@@ -87,6 +90,7 @@ class AnalysisParams:
             capacity_trials=int(cfg.get("capacity_trials", 15)),
             max_capacity_p=int(cfg.get("max_capacity_p", 10)),
             spurious_trials=None if spurious_trials is None else int(spurious_trials),
+            rule=str(cfg.get("rule", "hebb")),
         )
 
 
@@ -172,12 +176,7 @@ def add_pattern_heatmap(
     diff_ref: np.ndarray | None = None,
     show_values: bool | None = None,
 ) -> None:
-    """Agrega un patrón (vector bipolar) como grilla `shape` al subplot (row, col) de `fig`.
-
-    - `n_cols`: cantidad de columnas del `make_subplots` (se usa para anclar el aspecto cuadrado).
-    - `diff_ref`: si se pasa, los píxeles distintos de la referencia se pintan en rojo.
-    - `show_values`: mostrar "+1"/"-1" en cada celda. Por defecto solo si hay <= 100 celdas.
-    """
+    """Agrega un patrón (vector bipolar) como grilla `shape` al subplot (row, col) de `fig`."""
     mat = np.asarray(vec).reshape(shape)
     n_cells = shape[0] * shape[1]
     if show_values is None:
@@ -215,7 +214,7 @@ def add_pattern_heatmap(
         showticklabels=False,
         showgrid=False,
         zeroline=False,
-        autorange="reversed",  # fila 0 arriba
+        autorange="reversed",
         scaleanchor=anchor,
         scaleratio=1,
         constrain="domain",
@@ -246,11 +245,7 @@ def plot_stored_patterns(
     shape: Tuple[int, int],
     item_label: str = "patrón",
 ) -> pd.DataFrame:
-    """Grafica los patrones almacenados y guarda tabla de energía/estabilidad.
-
-    Columnas: energía, si es punto fijo, píxeles inestables y margen de estabilidad mínimo
-    min_i ξ_i·h_i (si es < 0 algún píxel se invertiría bajo la dinámica: crosstalk excesivo).
-    """
+    """Grafica los patrones almacenados y guarda tabla de energía/estabilidad."""
     _check_shape(net, shape)
     p = net.n_patterns
     rows_info: List[Dict[str, Any]] = []
@@ -386,12 +381,45 @@ def analyze_orthogonality(
 # ──────────────────────────────────────────────────────────────────────────────
 # 3. Capacidad de almacenamiento
 # ──────────────────────────────────────────────────────────────────────────────
+def find_globally_optimal_sequence(
+    pool: Mapping[str, np.ndarray],
+    target_p: int,
+    rule: str = "hebb",
+) -> List[str]:
+    """Evalúa todas las combinaciones posibles de tamaño `target_p` en el pool y devuelve
+    aquella que maximiza la cantidad de patrones estables (y minimiza el solapamiento máximo).
+    """
+    pool_keys = list(pool.keys())
+    if target_p > len(pool_keys):
+        return pool_keys
+
+    best_combo: List[str] = []
+    max_stable = -1
+    min_max_ov = float("inf")
+
+    for combo in itertools.combinations(pool_keys, target_p):
+        sub_pats = np.stack([pool[n] for n in combo], axis=0)
+        sub_net = HopfieldNetwork(sub_pats, list(combo), rule=rule)
+
+        n_stable = sum(1 for pat in sub_net.patterns if sub_net.is_fixed_point(pat))
+        ov = sub_net.orthogonality_matrix()
+        off_diag = np.abs(ov[~np.eye(target_p, dtype=bool)])
+        max_ov = float(off_diag.max()) if off_diag.size else 0.0
+
+        if n_stable > max_stable or (n_stable == max_stable and max_ov < min_max_ov):
+            max_stable = n_stable
+            min_max_ov = max_ov
+            best_combo = list(combo)
+
+    return best_combo
+
+
 def build_orthogonal_sequence(
     seed_names: Sequence[str],
     pool: Mapping[str, np.ndarray],
     max_p: int = 10,
 ) -> List[str]:
-    """Extiende `seed_names` agregando, de a uno, el patrón del `pool` con menor solapamiento máximo."""
+    """Mantenida por compatibilidad: selecciona iterativamente con heurística greedy."""
     chosen = [str(n) for n in seed_names]
     unknown = [n for n in chosen if n not in pool]
     if unknown:
@@ -411,34 +439,42 @@ def build_orthogonal_sequence(
         remaining.remove(best)
     return chosen[:max_p]
 
-
 def analyze_capacity(
     params: AnalysisParams,
     out: str,
     pool: Mapping[str, np.ndarray],
     sequences: Mapping[str, Sequence[str]],
 ) -> pd.DataFrame:
-    """Estudia cómo cae la recuperación al aumentar P usando secuencias de patrones del `pool`.
-
-    `sequences` mapea una etiqueta (p. ej. "baja correlación") a una lista ordenada de nombres;
-    para cada prefijo de tamaño P se arma una red y se mide estabilidad sin ruido y recuperación
-    con ruido `params.capacity_noise`.
+    """Estudia la capacidad evaluando la combinación globalmente óptima que maximiza
+    los patrones estables para cada P, además de las secuencias pasadas explícitamente.
     """
     rng = np.random.default_rng(params.seed)
     n_neurons = len(next(iter(pool.values())))
     cap = theoretical_capacity(n_neurons)
     n_flip = int(round(params.capacity_noise * n_neurons))
 
+    eval_sequences: Dict[str, List[List[str]]] = {}
+
+    # 1. Búsqueda combinatoria de la secuencia óptima para cada P
+    max_p = min(params.max_capacity_p, len(pool))
+    optimal_by_p = [
+        find_globally_optimal_sequence(pool, target_p=p, rule=params.rule)
+        for p in range(1, max_p + 1)
+    ]
+    eval_sequences["Secuencia óptima (máx. estabilidad)"] = optimal_by_p
+
+    # 2. Agregar secuencias adicionales enviadas desde la llamada si difieren
+    for seq_name, seq_list in sequences.items():
+        eval_sequences[seq_name] = [list(seq_list[:p]) for p in range(1, min(max_p, len(seq_list)) + 1)]
+
     rows: List[Dict[str, Any]] = []
     max_p_plotted = 1
-    for group_label, seq in sequences.items():
-        missing = [n for n in seq if n not in pool]
-        if missing:
-            raise ValueError(f"Secuencia {group_label!r}: patrones fuera del pool: {missing}")
-        for p in range(1, min(params.max_capacity_p, len(seq)) + 1):
-            sub_names = list(seq[:p])
+
+    for group_label, seq_p_list in eval_sequences.items():
+        for p_idx, sub_names in enumerate(seq_p_list, start=1):
+            p = len(sub_names)
             sub_pats = np.stack([pool[n] for n in sub_names], axis=0)
-            sub_net = HopfieldNetwork(sub_pats, sub_names)
+            sub_net = HopfieldNetwork(sub_pats, sub_names, rule=params.rule)
             max_p_plotted = max(max_p_plotted, p)
 
             ov = sub_net.orthogonality_matrix()
@@ -484,7 +520,7 @@ def analyze_capacity(
             f"Tasa de recuperación con ruido ({params.capacity_noise:.0%} = {n_flip} píxeles)",
         ),
     )
-    for g_idx, group_label in enumerate(sequences):
+    for g_idx, group_label in enumerate(eval_sequences):
         grp = df_cap[df_cap["sequence_type"] == group_label]
         color = _PALETTE[g_idx % len(_PALETTE)]
         for col, y_col, show_legend in (
@@ -529,11 +565,7 @@ def analyze_random_capacity(
     n_repeats: int = 3,
     n_probe: int = 5,
 ) -> pd.DataFrame:
-    """Capacidad con patrones aleatorios para N neuronas, barriendo la carga α = P/N.
-
-    Útil cuando hay pocos patrones reales (p. ej. 5 QR) y no se puede ver el colapso de la red:
-    permite ubicar empíricamente el α crítico (≈ 0.138 en teoría) para el N del caso de uso.
-    """
+    """Capacidad con patrones aleatorios para N neuronas, barriendo la carga α = P/N."""
     rng = np.random.default_rng(None if params.seed is None else params.seed + 31)
     bits = np.array([-1, 1], dtype=np.int8)
 
@@ -678,7 +710,7 @@ def evaluate_noise_sweep(
                     "final_energy": float(res.energy_history[-1]),
                 })
 
-                if t == 0:  # traza de energía del primer ensayo de cada (patrón, ruido)
+                if t == 0:
                     for step_idx, e_val in enumerate(res.energy_history):
                         energy_records.append({
                             "noise_level": level,
@@ -687,7 +719,7 @@ def evaluate_noise_sweep(
                             "energy": float(e_val),
                             "outcome": outcome,
                         })
-                    if pat_idx == 0:
+                    if pat_idx == TARGET_IDX:
                         showcase.append(_Example(
                             level=level,
                             query=query,
@@ -814,16 +846,16 @@ def evaluate_noise_sweep(
     )
     save_fig(fig_e, out, "energia_por_paso")
 
-    # Gráfico 3: consulta ruidosa -> estado final por nivel de ruido (patrón 0)
+    # Gráfico 3: consulta ruidosa -> estado final por nivel de ruido
     if showcase:
         if len(showcase) > max_examples:
             keep = np.unique(np.linspace(0, len(showcase) - 1, max_examples).round().astype(int))
             showcase = [showcase[int(i)] for i in keep]
         n_cols = len(showcase)
-        first_target = net.patterns[0]
+        target_pattern = net.patterns[TARGET_IDX]
         sub_titles: List[str] = []
         for ex in showcase:
-            flips = hamming_distance(ex.query, first_target)
+            flips = hamming_distance(ex.query, target_pattern)
             sub_titles.append(f"Ruido {ex.level:.0%} ({flips} px)<br>Entrada")
         for ex in showcase:
             sub_titles.append(f"Final: {ex.label} ({ex.iterations} it)<br>E = {ex.energy:.2f}")
@@ -836,11 +868,11 @@ def evaluate_noise_sweep(
             horizontal_spacing=0.04,
         )
         for col_idx, ex in enumerate(showcase, start=1):
-            add_pattern_heatmap(fig_ex, ex.query, shape, 1, col_idx, n_cols, diff_ref=first_target)
-            add_pattern_heatmap(fig_ex, ex.final_state, shape, 2, col_idx, n_cols, diff_ref=first_target)
+            add_pattern_heatmap(fig_ex, ex.query, shape, 1, col_idx, n_cols, diff_ref=target_pattern)
+            add_pattern_heatmap(fig_ex, ex.final_state, shape, 2, col_idx, n_cols, diff_ref=target_pattern)
         fig_ex.update_layout(
             title=(
-                f"Recuperación visual de '{net.names[0]}' según nivel de ruido "
+                f"Recuperación visual de '{net.names[TARGET_IDX]}' según nivel de ruido "
                 "(rojo = píxel distinto del patrón original)"
             ),
             height=540,
@@ -897,7 +929,6 @@ def analyze_spurious_states(
     n_search = params.spurious_trials if params.spurious_trials is not None else max(params.trials * 4, 80)
     found: Dict[bytes, _SpuriousRecord] = {}
 
-    # 1) Búsqueda con consultas muy ruidosas
     for idx, name in enumerate(net.names):
         pat = net.patterns[idx]
         for _ in range(n_search):
@@ -909,7 +940,6 @@ def analyze_spurious_states(
             if outcome in ("spurious", "inverted", "cycle"):
                 _register_spurious(found, net, q, res, outcome, matched, name, params.spurious_noise)
 
-    # 2) Si no apareció ninguna mezcla, consulta con la combinación (signo de la suma) de 3 patrones
     if net.n_patterns >= 3 and not any(r.state_type == "spurious" for r in found.values()):
         mix_raw = net.patterns[:3].astype(np.int32).sum(axis=0)
         q_mix = np.where(mix_raw >= 0, 1, -1).astype(np.int8)
@@ -924,7 +954,6 @@ def analyze_spurious_states(
                 round(hamming_distance(q_mix, net.patterns[0]) / n, 2),
             )
 
-    # 3) Si no apareció ningún invertido, consulta con ruido muy alto (~80 %): cae en -ξ
     if not any(r.state_type == "inverted" for r in found.values()):
         q_inv = apply_noise(net.patterns[0], 0.80, rng, noise_type="white")
         res = net.predict(
@@ -1099,13 +1128,7 @@ def run_full_analysis(
     include_random_capacity: bool = False,
     ascii_preview: bool | None = None,
 ) -> AnalysisResults:
-    """Ejecuta todo el análisis sobre `net` y devuelve las tablas.
-
-    - `pool`: diccionario nombre -> vector (N,) con patrones candidatos para el análisis de capacidad.
-    - `capacity_sequences`: etiqueta -> orden de nombres del `pool` a agregar de a uno.
-    - `include_random_capacity`: agrega el barrido de capacidad con patrones aleatorios
-      (recomendado cuando hay pocos patrones reales, como los 5 QR).
-    """
+    """Ejecuta todo el análisis sobre `net` y devuelve las tablas."""
     _check_shape(net, shape)
     df_stored = plot_stored_patterns(net, out, shape, item_label)
     orth = analyze_orthogonality(net, out, item_label)

@@ -8,6 +8,7 @@ dependencies = [
     "commons",
     "ej1",
     "ej2",
+    "opencv-python>=5.0.0.93",
     "pillow>=13.0.0",
 ]
 

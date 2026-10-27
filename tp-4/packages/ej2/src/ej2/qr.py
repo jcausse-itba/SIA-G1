@@ -6,6 +6,7 @@ Exposes a single entry-point `run_qr_task()` which is used to initiate the task.
 
 __all__ = ["QR_SHAPE", "load_qr_patterns", "run_qr_task"]
 
+import itertools
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -54,6 +55,30 @@ def load_qr_patterns(folder: str | Path) -> Tuple[List[str], np.ndarray]:
         pats.append(np.where(np.asarray(img) < 128, 1, -1).astype(np.int8).ravel())
         names.append(path.stem.lower().removesuffix("_qr").removesuffix("_menu").capitalize())
     return names, np.stack(pats, axis=0)
+
+
+def optimize_rotations(patterns: np.ndarray) -> np.ndarray:
+    """Prueba todas las rotaciones (0, 90, 180, 270) para maximizar la ortogonalidad de los QR."""
+    p = len(patterns)
+    reshaped = patterns.reshape(p, QR_SHAPE[0], QR_SHAPE[1])
+    variants = [[np.rot90(reshaped[i], k).ravel() for k in range(4)] for i in range(p)]
+    
+    best_pats = patterns
+    min_corr = float('inf')
+    best_combo = None
+    
+    for combo in itertools.product(range(4), repeat=p):
+        current = np.array([variants[i][k] for i, k in enumerate(combo)], dtype=np.int8)
+        dot_matrix = current.astype(np.float32) @ current.astype(np.float32).T
+        np.fill_diagonal(dot_matrix, 0)
+        corr = float(np.sum(np.abs(dot_matrix)))
+        if corr < min_corr:
+            min_corr = corr
+            best_pats = current
+            best_combo = combo
+            
+    print(f"[qr] Rotaciones optimizadas: combinaciones de 90° {best_combo}. Solapamiento (correlación) absoluto reducido a {min_corr}")
+    return best_pats
 
 
 def _make_decoder(patterns: np.ndarray) -> Optional[Tuple[Decoder, List[str]]]:
@@ -169,14 +194,16 @@ def run_qr_task(cfg: Dict[str, Any]) -> None:
     sub = "qr" if cfg.get("task") == "all" else ""
     out = out_dir(cfg, sub)
     names, patterns = load_qr_patterns(cfg["dataset_path"])
-    net = HopfieldNetwork(patterns, names)
+    params = AnalysisParams.from_cfg(cfg)
+
+    if cfg.get("optimize_rotations"):
+        patterns = optimize_rotations(patterns)
+
+    net = HopfieldNetwork(patterns, names, rule=params.rule)
     params = AnalysisParams.from_cfg(cfg)
 
     pool = {name: patterns[i] for i, name in enumerate(names)}
-    ortho_seq = build_orthogonal_sequence(names, pool, max_p=len(names))
     capacity_sequences = {
-        "QR del menú (orden natural)": names,
-        "Secuencia optimizada (ortogonalidad)": ortho_seq,
     }
 
     # Ejecutar el análisis completo mediante analyze.py (incluyendo capacidad aleatoria recomendada para pocos patrones)

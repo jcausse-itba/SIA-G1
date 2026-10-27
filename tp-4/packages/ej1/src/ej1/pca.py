@@ -1,4 +1,4 @@
-"""Punto 1: Análisis de Componentes Principales (implementación propia vía eigh)."""
+"""Punto 1: Análisis de Componentes Principales (implementación propia vía eigh, sin log1p)."""
 from dataclasses import dataclass
 from typing import Any, Dict, Hashable
 
@@ -14,9 +14,9 @@ from .plots import DIVERGING, out_dir, save_csv, save_fig, short
 
 @dataclass
 class PCAResult:
-    eigenvalues: np.ndarray      # todos, en orden decreciente
-    loadings: pd.DataFrame       # features x PCk (autovectores, signo normalizado)
-    scores: pd.DataFrame         # creadores x PCk
+    eigenvalues: np.ndarray       # todos, en orden decreciente
+    loadings: pd.DataFrame        # features x PCk (autovectores, signo normalizado)
+    scores: pd.DataFrame          # creadores x PCk
 
     @property
     def explained(self) -> np.ndarray:
@@ -24,21 +24,29 @@ class PCAResult:
 
 
 def fit_pca(ds: Dataset, n_components: int | None = None) -> PCAResult:
-    X = ds.X
-    cov = np.cov(X, rowvar=False)            # == matriz de correlación (X estandarizada)
+    df_num = pd.DataFrame(ds.X, columns=ds.features)
+    
+    df_std = (df_num - df_num.mean()) / df_num.std(ddof=1)
+    
+    cov = df_std.cov(ddof=0).to_numpy()
+    X = df_std.to_numpy()
+    
     vals, vecs = np.linalg.eigh(cov)
     order = np.argsort(vals)[::-1]
     vals, vecs = np.clip(vals[order], 0, None), vecs[:, order]
 
-    # Convención de signo: el loading de mayor |valor| de cada componente es positivo.
-    # Hace la interpretación estable y permite comparar directamente con Oja.
     signs = np.sign(vecs[np.abs(vecs).argmax(axis=0), np.arange(vecs.shape[1])])
+    
+    # Invertir el signo de PC1 de forma directa (índice 0)
+    signs[0] *= -1 
+    
     vecs = vecs * signs
 
     q = n_components or len(vals)
     cols = [f"PC{i + 1}" for i in range(q)]
     loadings = pd.DataFrame(vecs[:, :q], index=ds.features, columns=cols)
     scores = pd.DataFrame(X @ vecs[:, :q], columns=cols)
+    
     return PCAResult(eigenvalues=vals, loadings=loadings, scores=scores)
 
 
@@ -52,7 +60,6 @@ def biplot(pca: PCAResult, ds: Dataset, color=None, color_label: str = "", title
                      title=f"{title}  (PC1 {ev[0]:.1%}, PC2 {ev[1]:.1%})", height=850)
     fig.update_traces(textposition="top center", textfont_size=9, marker_size=9)
 
-    # Escala de flechas: usar |.| (el max sin abs falla si los loadings dominantes son negativos).
     L = pca.loadings[["PC1", "PC2"]]
     scale = 0.9 * sc[["PC1", "PC2"]].abs().to_numpy().max() / L.abs().to_numpy().max()
     for feat, (lx, ly) in L.iterrows():
@@ -69,7 +76,7 @@ def biplot(pca: PCAResult, ds: Dataset, color=None, color_label: str = "", title
 def run_pca(ds: Dataset, cfg: Dict[str, Any]) -> PCAResult:
     out = out_dir(cfg, "pca")
     pca = fit_pca(ds, cfg["n_components"])
-    full = fit_pca(ds, None)  # scree siempre con todas
+    full = fit_pca(ds, None)
     ev, cum = full.explained, np.cumsum(full.explained)
 
     # ---- Scree + acumulada + criterio de Kaiser
@@ -86,7 +93,17 @@ def run_pca(ds: Dataset, cfg: Dict[str, Any]) -> PCAResult:
     fig.update_yaxes(tickformat=".0%", range=[0, 1.02], secondary_y=True)
     save_fig(fig, out, "scree")
 
-    # ---- Loadings (primeras componentes interpretables)
+    # ---- Pie chart de la varianza explicada con varianza acumulada (AG)
+    var_df["etiqueta_pie"] = [
+        f"{row.componente} (AG: {row.acumulada * 100:.2f}%)" 
+        for _, row in var_df.iterrows()
+    ]
+    fig_pie = px.pie(var_df, names="etiqueta_pie", values="varianza_explicada",
+                     title="Proporción de Varianza Explicada por Componente Principal (con Varianza Acumulada)")
+    fig_pie.update_traces(textposition="inside", textinfo="percent+label")
+    save_fig(fig_pie, out, "varianza_pie")
+
+    # ---- Loadings (Heatmap general)
     k_show = min(6, pca.loadings.shape[1])
     L = pca.loadings.iloc[:, :k_show]
     save_csv(pca.loadings.round(4), out, "loadings", index=True)
@@ -94,16 +111,61 @@ def run_pca(ds: Dataset, cfg: Dict[str, Any]) -> PCAResult:
                     aspect="auto", title="Loadings de las primeras componentes", height=800)
     save_fig(fig, out, "loadings")
 
-    fig = make_subplots(rows=1, cols=2, subplot_titles=("Loadings PC1", "Loadings PC2"))
-    for j, pc in enumerate(("PC1", "PC2"), start=1):
-        s = pca.loadings[pc].sort_values()
-        s_vals = s.to_numpy()
-        fig.add_bar(x=s_vals, y=s.index, orientation="h", row=1, col=j, showlegend=False,
-                    marker_color=np.where(s_vals >= 0, "#1e8449", "#c0392b"))
-    fig.update_layout(height=750)
+    # ---- Loadings PC1 y PC2 (ordenados por loading absoluto descendente, con dropdown e inversión de ejes)
+    s1 = pca.loadings["PC1"].reindex(pca.loadings["PC1"].abs().sort_values(ascending=False).index)
+    s2 = pca.loadings["PC2"].reindex(pca.loadings["PC2"].abs().sort_values(ascending=False).index)
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Bar(
+        x=s1.index, 
+        y=s1.to_numpy(),
+        marker_color=np.where(s1.to_numpy() >= 0, "#1e8449", "#c0392b"),
+        name="PC1",
+        visible=True
+    ))
+
+    fig.add_trace(go.Bar(
+        x=s2.index, 
+        y=s2.to_numpy(),
+        marker_color=np.where(s2.to_numpy() >= 0, "#1e8449", "#c0392b"),
+        name="PC2",
+        visible=False
+    ))
+
+    fig.update_layout(
+        title="Loadings - PC1",
+        height=650,
+        xaxis_title="Features",
+        yaxis_title="Loading",
+        updatemenus=[
+            dict(
+                type="dropdown",
+                direction="down",
+                x=0.15,
+                y=1.15,
+                showactive=True,
+                buttons=list([
+                    dict(
+                        label="Loadings PC1",
+                        method="update",
+                        args=[{"visible": [True, False]},
+                              {"title": "Loadings - PC1"}]
+                    ),
+                    dict(
+                        label="Loadings PC2",
+                        method="update",
+                        args=[{"visible": [False, True]},
+                              {"title": "Loadings - PC2"}]
+                    )
+                ])
+            )
+        ]
+    )
+    fig.update_xaxes(tickangle=-45)
     save_fig(fig, out, "loadings_pc1_pc2")
 
-    # ---- Biplot (coloreado por temática dominante) + boxplot + índice PC1
+    # ---- Biplot + boxplot + índice PC1
     dom = ds.raw.filter(like="topic_").idxmax(axis=1).astype(str).str.replace("topic_", "", regex=False).str.replace("_pct", "", regex=False)
     save_fig(biplot(full, ds, color=dom.to_numpy(), color_label="tematica"), out, "biplot")
 
@@ -124,10 +186,6 @@ def run_pca(ds: Dataset, cfg: Dict[str, Any]) -> PCAResult:
     kaiser = int((full.eigenvalues > 1).sum())
     print(f"[pca] {len(ev)} componentes. PC1 {ev[0]:.1%}, PC2 {ev[1]:.1%}, PC1+PC2 {cum[1]:.1%}.")
     print(f"[pca] Kaiser (λ>1): {kaiser} componentes; 90% de varianza: {n90} componentes.")
-    near_zero = int((full.eigenvalues < 1e-8).sum())
-    if near_zero:
-        print(f"[pca] {near_zero} autovalores ~0 (restricciones lineales exactas entre features, "
-              f"p.ej. grupos topic_*/content_* que suman 100).")
     for pc in ("PC1", "PC2"):
         s = full.loadings[pc]
         top = s.reindex(s.abs().sort_values(ascending=False).index)[:5]
