@@ -674,7 +674,7 @@ def evaluate_noise_sweep(
 
     trial_records: List[Dict[str, Any]] = []
     energy_records: List[Dict[str, Any]] = []
-    showcase: List[_Example] = []
+    showcase: Dict[str, List[_Example]] = {name: [] for name in net.names}
 
     for level in levels:
         for pat_idx, name in enumerate(net.names):
@@ -719,15 +719,14 @@ def evaluate_noise_sweep(
                             "energy": float(e_val),
                             "outcome": outcome,
                         })
-                    if pat_idx == TARGET_IDX:
-                        showcase.append(_Example(
-                            level=level,
-                            query=query,
-                            final_state=res.final_state,
-                            label=matched_name if matched_name else outcome,
-                            iterations=res.iterations,
-                            energy=float(res.energy_history[-1]),
-                        ))
+                    showcase[name].append(_Example(
+                        level=level,
+                        query=query,
+                        final_state=res.final_state,
+                        label=matched_name if matched_name else outcome,
+                        iterations=res.iterations,
+                        energy=float(res.energy_history[-1]),
+                    ))
 
     df_trials = pd.DataFrame(trial_records)
     for key in _OUTCOME_KEYS:
@@ -846,18 +845,22 @@ def evaluate_noise_sweep(
     )
     save_fig(fig_e, out, "energia_por_paso")
 
-    # Gráfico 3: consulta ruidosa -> estado final por nivel de ruido
-    if showcase:
-        if len(showcase) > max_examples:
-            keep = np.unique(np.linspace(0, len(showcase) - 1, max_examples).round().astype(int))
-            showcase = [showcase[int(i)] for i in keep]
-        n_cols = len(showcase)
-        target_pattern = net.patterns[TARGET_IDX]
+    # Gráfico 3: consulta ruidosa -> estado final por nivel de ruido, para cada patrón objetivo
+    for target_idx, target_name in enumerate(net.names):
+        examples = showcase[target_name]
+        if not examples:
+            continue
+        if len(examples) > max_examples:
+            keep = np.unique(np.linspace(0, len(examples) - 1, max_examples).round().astype(int))
+            examples = [examples[int(i)] for i in keep]
+
+        n_cols = len(examples)
+        target_pattern = net.patterns[target_idx]
         sub_titles: List[str] = []
-        for ex in showcase:
+        for ex in examples:
             flips = hamming_distance(ex.query, target_pattern)
             sub_titles.append(f"Ruido {ex.level:.0%} ({flips} px)<br>Entrada")
-        for ex in showcase:
+        for ex in examples:
             sub_titles.append(f"Final: {ex.label} ({ex.iterations} it)<br>E = {ex.energy:.2f}")
 
         fig_ex = make_subplots(
@@ -867,18 +870,18 @@ def evaluate_noise_sweep(
             vertical_spacing=0.14,
             horizontal_spacing=0.04,
         )
-        for col_idx, ex in enumerate(showcase, start=1):
+        for col_idx, ex in enumerate(examples, start=1):
             add_pattern_heatmap(fig_ex, ex.query, shape, 1, col_idx, n_cols, diff_ref=target_pattern)
             add_pattern_heatmap(fig_ex, ex.final_state, shape, 2, col_idx, n_cols, diff_ref=target_pattern)
         fig_ex.update_layout(
             title=(
-                f"Recuperación visual de '{net.names[TARGET_IDX]}' según nivel de ruido "
+                f"Recuperación visual de '{target_name}' según nivel de ruido "
                 "(rojo = píxel distinto del patrón original)"
             ),
             height=540,
             width=max(210 * n_cols, 750),
         )
-        save_fig(fig_ex, out, "ejemplos_recuperacion")
+        save_fig(fig_ex, out, f"ejemplos_recuperacion_{target_idx}")
 
     return df_summary, df_by_pattern
 
