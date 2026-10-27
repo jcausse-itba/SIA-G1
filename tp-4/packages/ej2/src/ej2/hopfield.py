@@ -248,41 +248,42 @@ def apply_noise(
     - "finger": mancha conexa/circular centrada en un punto aleatorio (simula dedo/mancha).
     - "perlin": campo aleatorio espacialmente correlacionado (filtro gaussiano multi-escala).
     """
-    noisy = np.asarray(pattern, dtype=np.int8).copy()
-    n = noisy.size
-    n_flip = int(round(level * n))
-    if n_flip <= 0:
-        return noisy
-    if n_flip >= n:
-        return -noisy
+    noisy = np.asarray(pattern, dtype=np.int8).copy()         # Copia el patrón para no mutar el original
+    n = noisy.size                                            # Cantidad total de píxeles (N)
+    n_flip = int(round(level * n))                            # Número exacto de píxeles a perturbar
+    if n_flip <= 0:                                           # Si el nivel no alcanza a alterar píxeles:
+        return noisy                                          # Retorna el patrón sin cambios
+    if n_flip >= n:                                           # Si se perturba el 100% del patrón:
+        return -noisy                                         # Retorna el patrón invertido
 
-    if noise_type == "white" or shape is None:
-        idx = rng.choice(n, size=n_flip, replace=False)
-        noisy[idx] = -1
-        return noisy
+    if noise_type == "white" or shape is None:                # Ruido blanco (desgaste / fading a fondo -1)
+        idx = rng.choice(n, size=n_flip, replace=False)       # Elige píxeles uniformemente al azar
+        noisy[idx] = -1                                       # Apaga los píxeles a -1 (fondo blanco)
+        return noisy                                          # Retorna el patrón degradado
 
-    if noise_type == "flip":
-        idx = rng.choice(n, size=n_flip, replace=False)
-        noisy[idx] *= -1
-        return noisy
+    if noise_type == "flip":                                  # Ruido de inversión aleatoria de signo
+        idx = rng.choice(n, size=n_flip, replace=False)       # Elige píxeles uniformemente al azar
+        noisy[idx] *= -1                                      # Invierte la polaridad (+1 <-> -1)
+        return noisy                                          # Retorna el patrón ruidoso
 
-    rows, cols = shape
-    if noise_type == "finger":
-        r0 = rng.uniform(0, rows - 1)
-        c0 = rng.uniform(0, cols - 1)
-        rr, cc = np.indices((rows, cols))
-        dist = np.sqrt((rr - r0) ** 2 + (cc - c0) ** 2) + rng.normal(0, 0.35, size=(rows, cols))
-        idx = np.argsort(dist.ravel())[:n_flip]
-        noisy[idx] = -1
-        return noisy
+    rows, cols = shape                                        # Dimensiones 2D de la imagen (alto, ancho)
+    if noise_type == "finger":                                # Ruido localizado tipo mancha o huella
+        r0 = rng.uniform(0, rows - 1)                         # Centro aleatorio en el eje vertical
+        c0 = rng.uniform(0, cols - 1)                         # Centro aleatorio en el eje horizontal
+        rr, cc = np.indices((rows, cols))                     # Malla de coordenadas espaciales 2D
+        dist = np.sqrt((rr - r0) ** 2 + (cc - c0) ** 2)       # Distancia euclídea radial al centro
+        dist += rng.normal(0, 0.35, size=(rows, cols))        # Añade rugosidad estocástica al borde
+        idx = np.argsort(dist.ravel())[:n_flip]               # Selecciona los píxeles más cercanos al foco
+        noisy[idx] = -1                                       # Apaga la región manchada a -1
+        return noisy                                          # Retorna el patrón manchado
 
-    if noise_type == "perlin":
-        field = np.zeros((rows, cols), dtype=np.float64)
-        for sigma in (1.0, 2.0, 4.0):
-            raw = rng.standard_normal((rows, cols))
-            field += gaussian_filter(raw, sigma=sigma)
-        idx = np.argsort(field.ravel())[:n_flip]
-        noisy[idx] *= -1
-        return noisy
+    if noise_type == "perlin":                                # Ruido espacialmente correlacionado (textura)
+        field = np.zeros((rows, cols), dtype=np.float64)      # Campo escalar 2D acumulador
+        for sigma in (1.0, 2.0, 4.0):                         # Filtro gaussiano a múltiples escalas
+            raw = rng.standard_normal((rows, cols))           # Muestra aleatoria normal por píxel
+            field += gaussian_filter(raw, sigma=sigma)        # Acumula componentes suaves y amplias
+        idx = np.argsort(field.ravel())[:n_flip]              # Selecciona las zonas de mayor intensidad
+        noisy[idx] *= -1                                      # Invierte los píxeles en esas regiones
+        return noisy                                          # Retorna el patrón con textura suave
 
-    raise ValueError(f"Unknown noise_type: {noise_type!r}")
+    raise ValueError(f"Unknown noise_type: {noise_type!r}")   # Error si el tipo de ruido no existe
