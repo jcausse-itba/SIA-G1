@@ -29,6 +29,8 @@ def build_parser(data_path: Path) -> argparse.ArgumentParser:
     n = p.add_argument_group("Hopfield network")
     n.add_argument("--rule", choices=("hebb", "pseudoinverse", "storkey"), default="hebb",
                help="Regla de aprendizaje: hebb (regla clásica) o pseudoinverse (proyección).")
+    n.add_argument("--use-mask", action="store_true",
+                   help="Utilizar máscara para ignorar píxeles constantes en la regla de Hebb.")
     n.add_argument("--update-mode", choices=("synchronous", "asynchronous"), default="asynchronous",
                    help="Actualización de neuronas: todas a la vez o una por vez.")
     n.add_argument("--max-iterations", type=positive_int, default=100,

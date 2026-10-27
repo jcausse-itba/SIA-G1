@@ -30,7 +30,7 @@ class HopfieldResult:
 class HopfieldNetwork:
     """Red de Hopfield con regla de Hebb o Pseudoinversa sobre patrones bipolares {-1, +1}."""
 
-    def __init__(self, patterns: np.ndarray, names: Sequence[str] | None = None, rule: str = "hebb") -> None:
+    def __init__(self, patterns: np.ndarray, names: Sequence[str] | None = None, rule: str = "hebb", use_mask: bool = False) -> None:
         patterns = np.asarray(patterns, dtype=np.int8)
         if patterns.ndim != 2:
             raise ValueError(f"Expected 2D array of shape (P, N), got {patterns.shape}")
@@ -50,10 +50,12 @@ class HopfieldNetwork:
         Xf = self.patterns.astype(np.float64)
 
         if rule == "hebb":
-            # Hebb puro (sin centrar) solo sobre los píxeles que varían entre patrones.
+            # Hebb puro (sin centrar)
             self.pattern_mean = np.zeros(self.n_neurons)
-            #self.variable_mask = np.ones(self.n_neurons, dtype=bool)
-            self.variable_mask = (self.patterns != self.patterns[0]).any(axis=0)
+            if use_mask:
+                self.variable_mask = (self.patterns != self.patterns[0]).any(axis=0) # solo sobre los píxeles que varían entre patrones.
+            else:
+                self.variable_mask = np.ones(self.n_neurons, dtype=bool)
             Xv = Xf * self.variable_mask  # columnas comunes -> 0
             self.W = (Xv.T @ Xv) / self.n_neurons
 

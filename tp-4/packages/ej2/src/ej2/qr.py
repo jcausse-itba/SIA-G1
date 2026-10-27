@@ -199,7 +199,7 @@ def run_qr_task(cfg: Dict[str, Any]) -> None:
     if cfg.get("optimize_rotations"):
         patterns = optimize_rotations(patterns)
 
-    net = HopfieldNetwork(patterns, names, rule=params.rule)
+    net = HopfieldNetwork(patterns, names, rule=params.rule, use_mask=cfg.get("use_mask", False))
     params = AnalysisParams.from_cfg(cfg)
 
     pool = {name: patterns[i] for i, name in enumerate(names)}
