@@ -1,0 +1,77 @@
+import argparse
+
+def nullable_int(val: str) -> int | None:
+    if val.lower() in ("none", "null"):
+        return None
+    try:
+        return int(val)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"Invalid int value: '{val}'")
+
+def build_parser() -> argparse.ArgumentParser:
+    """Builds and returns the argument parser for TP3: Perceptron & Multilayer Perceptron."""
+    parser = argparse.ArgumentParser(
+        description="TP3: Simple and Multilayer Perceptron",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+
+    parser.add_argument("-c", "--config", type=str, default=None,
+                        help="Path to a JSON/TOML configuration file. CLI arguments override JSON/TOML values.")
+
+    # Data Parameters
+    data = parser.add_argument_group("Dataset Parameters")
+    data.add_argument("-d", "--dataset-path", type=str, default=None, help="Path to the training dataset CSV")
+    data.add_argument("--test-dataset-path", type=str, default=None, help="Path to the testing dataset CSV (optional)")
+    data.add_argument("--scaling", type=str, default="standardization", choices=["none", "standardization", "minmax"],
+                      help="Feature scaling strategy: 'none', 'standardization' (Z-score), or 'minmax'")
+
+    # Model Parameters
+    model = parser.add_argument_group("Model Architecture")
+    model.add_argument("-m", "--model-type", type=str, default="multilayer",
+                       choices=["simple_linear", "simple_non_linear", "multilayer"],
+                       help="Type of perceptron model")
+    model.add_argument("-a", "--architecture", type=int, nargs="+", default=[2, 3, 1],
+                       help="Layer structure for Multilayer Perceptron (e.g. 2 3 1)")
+    model.add_argument("--activation", type=str, default="sigmoid",
+                       choices=["step", "linear", "sigmoid", "tanh", "relu"],
+                       help="Activation function")
+    model.add_argument("--beta", type=float, default=1.0, help="Beta coefficient for non-linear activations")
+
+    # Optimization & Training
+    train = parser.add_argument_group("Training & Optimization Parameters")
+    train.add_argument("-lr", "--learning-rate", type=float, default=0.01, help="Learning rate (eta)")
+    train.add_argument("--optimizer", type=str, default="sgd", choices=["sgd", "momentum", "adam"],
+                       help="Optimization algorithm")
+    train.add_argument("--momentum-beta", type=float, default=0.9, help="Beta coefficient for Momentum")
+    train.add_argument("--loss", type=str, default="mean_squared_error",
+                       choices=["mean_squared_error", "binary_cross_entropy"],
+                       help="Loss function")
+    train.add_argument("--batch-size", type=nullable_int, default=None, help="Batch size for training")
+
+    # Stopping Conditions
+    stop = parser.add_argument_group("Stopping Conditions")
+    stop.add_argument("--max-epochs", type=int, default=1000, help="Maximum number of epochs")
+    stop.add_argument("--target-error", type=float, default=1e-4, help="Target minimum error to stop training")
+    stop.add_argument("--target-accuracy", type=float, default=0.98, help="Target accuracy to stop training")
+
+    # Generalization & Validation
+    gen = parser.add_argument_group("Generalization Parameters")
+    gen.add_argument("--validation-method", type=str, default="split", choices=["split", "k_fold", "explicit"],
+                     help="Method for validation/testing: 'split', 'k_fold', or 'explicit'")
+    gen.add_argument("--split-ratio", type=float, default=0.8, help="Train/Validation split ratio")
+    gen.add_argument("--k-folds", type=int, default=5, help="Number of folds for Cross Validation")
+    gen.add_argument("--threshold", type=float, default=0.5, help="Decision threshold for classification")
+
+    gen.add_argument("--fraud-cutoff", type=float, default=0.5,
+                     help="BigModel probability >= cutoff is treated as real fraud when computing precision/recall/F1/TPR/FPR")
+    gen.add_argument("--metrics-points", type=int, default=100,
+                     help="Per-epoch curves show the first N epochs; threshold curves use N thresholds in [0, 1]")
+    gen.add_argument("--metrics-dir", type=str, default="metrics",
+                     help="Folder where each fraud metric chart is written as its own .html")
+
+    # Persistence
+    pers = parser.add_argument_group("Model Persistence")
+    pers.add_argument("--save-model-path", type=str, default=None, help="Path to save trained weights/model")
+    pers.add_argument("--load-model-path", type=str, default=None, help="Path to load pre-trained weights")
+
+    return parser

@@ -1,0 +1,29 @@
+[data]
+dataset_path = "./data/validation_xor.csv"
+test_dataset_path = ""
+
+[model]
+model_type = "multilayer"
+architecture = [2, 2, 1]          # Arquitectura simple [2, 2, 1] o [2, 3, 2, 1] sugerida en la consigna
+activation = "tanh"
+beta = 1.0
+
+[training]
+learning_rate = 0.1
+optimizer = "sgd"
+momentum_beta = 0.0
+batch_size = 4
+
+[stopping]
+max_epochs = 5000
+target_error = 0.0001
+target_accuracy = 1.0
+
+[generalization]
+split_ratio = 1.0
+k_folds = 1
+threshold = 0.0
+
+[persistence]
+save_model_path = ""
+load_model_path = ""
