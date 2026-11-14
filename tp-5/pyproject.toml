@@ -1,5 +1,5 @@
 [project]
-name = "tp-3"
+name = "tp-5"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [project.scripts]
-tp-3 = "tp_3.__main__:main"
+tp-5 = "tp_3.__main__:main"
 
 [dependency-groups]
 dev = [
