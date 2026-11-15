@@ -1,25 +1,22 @@
 from dataclasses import dataclass, field
+from pathlib import Path
 import sys
 import threading
 import time
-from pathlib import Path
 from typing import Any, Callable
 
-import numpy as np
 import optuna
 from optuna.samplers import TPESampler
 
-from tp_5.config.validator import BaseExerciseConfig, build_config_object
+from tp_5.config.validator import AutoencoderConfig, DatasetBundle, build_config_object
 
 
 @dataclass
 class SearchSpaceSpec:
-    """Encapsulates the hyperparameter search space and objective rules for an exercise."""
+    """Encapsulates the hyperparameter search space for any Autoencoder architecture."""
 
-    exercise: str = "1a"
+    model_type: str = "autoencoder"
     dataset_path: str = "doc/font.h"
-    input_dim: int = 35
-    latent_dim: int = 2
 
     candidate_architectures: dict[str, list[int]] = field(
         default_factory=lambda: {
@@ -40,10 +37,8 @@ class SearchSpaceSpec:
     beta2_range: tuple[float, float] = (0.95, 0.9999)
     epsilon_range: tuple[float, float] = (1e-8, 1e-6)
 
-    # Extra exercise parameters (e.g. noise_type/noise_level for 1b, kl_weight for 2)
     fixed_overrides: dict[str, Any] = field(default_factory=dict)
 
-    # Optimization limits
     max_trials: int = 50
     time_per_trial_sec: float = 30.0
     max_epochs_per_trial: int = 6000
@@ -51,16 +46,22 @@ class SearchSpaceSpec:
 
 
 class BayesianAutoencoderSearcher:
-    """Generalized Optuna Bayesian Searcher for Autoencoder architectures."""
+    """Generalized Optuna Bayesian Searcher receiving its SearchSpaceSpec and config factory via DI."""
 
-    def __init__(self, spec: SearchSpaceSpec, output_dir: str | Path = "optuna_outputs") -> None:
+    def __init__(
+        self,
+        spec: SearchSpaceSpec,
+        config_factory: Callable[[dict[str, Any]], AutoencoderConfig] = build_config_object,
+        output_dir: str | Path = "optuna_outputs",
+    ) -> None:
         self.spec = spec
-        self.output_dir = Path(output_dir) / f"ex_{spec.exercise}"
+        self.config_factory = config_factory
+        self.output_dir = Path(output_dir) / spec.model_type
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.stop_optimization = False
         self.thread_running = False
         self.best_model: Any = None
-        self.best_config: BaseExerciseConfig | None = None
+        self.best_config: AutoencoderConfig | None = None
         self.best_summary: dict[str, Any] | None = None
         self._best_score = float("inf")
 
@@ -103,56 +104,42 @@ class BayesianAutoencoderSearcher:
                 if has_termios:
                     termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
-    def _sample_trial_config(self, trial: optuna.Trial) -> BaseExerciseConfig:
+    def _sample_trial_config(self, trial: optuna.Trial) -> AutoencoderConfig:
         arch_key = trial.suggest_categorical("architecture", list(self.spec.candidate_architectures.keys()))
-        encoder_layers = self.spec.candidate_architectures[arch_key]
-        hidden_act = trial.suggest_categorical("hidden_activation", self.spec.hidden_activations)
-        latent_act = trial.suggest_categorical("latent_activation", self.spec.latent_activations)
-        loss_name = trial.suggest_categorical("loss", self.spec.losses)
-        opt_name = trial.suggest_categorical("optimizer", self.spec.optimizers)
-        batch_size = trial.suggest_categorical("batch_size", self.spec.batch_sizes)
-        lr = trial.suggest_float("learning_rate", *self.spec.lr_range, log=True)
-        beta1 = trial.suggest_float("beta1", *self.spec.beta1_range)
-        beta2 = trial.suggest_float("beta2", *self.spec.beta2_range)
-        epsilon = trial.suggest_float("epsilon", *self.spec.epsilon_range, log=True)
-
         raw = {
-            "exercise": self.spec.exercise,
+            "model_type": self.spec.model_type,
             "dataset_path": self.spec.dataset_path,
-            "encoder_layers": encoder_layers,
-            "hidden_activation": hidden_act,
-            "latent_activation": latent_act,
+            "encoder_layers": self.spec.candidate_architectures[arch_key],
+            "hidden_activation": trial.suggest_categorical("hidden_activation", self.spec.hidden_activations),
+            "latent_activation": trial.suggest_categorical("latent_activation", self.spec.latent_activations),
             "output_activation": self.spec.output_activation,
-            "loss": loss_name,
-            "optimizer": opt_name,
-            "batch_size": batch_size,
-            "learning_rate": lr,
-            "beta1": beta1,
-            "beta2": beta2,
-            "epsilon": epsilon,
+            "loss": trial.suggest_categorical("loss", self.spec.losses),
+            "optimizer": trial.suggest_categorical("optimizer", self.spec.optimizers),
+            "batch_size": trial.suggest_categorical("batch_size", self.spec.batch_sizes),
+            "learning_rate": trial.suggest_float("learning_rate", *self.spec.lr_range, log=True),
+            "beta1": trial.suggest_float("beta1", *self.spec.beta1_range),
+            "beta2": trial.suggest_float("beta2", *self.spec.beta2_range),
+            "epsilon": trial.suggest_float("epsilon", *self.spec.epsilon_range, log=True),
             "max_epochs": self.spec.max_epochs_per_trial,
             "seed": 42 + trial.number,
             **self.spec.fixed_overrides,
         }
-        return build_config_object(raw)
+        return self.config_factory(raw)
 
     @staticmethod
     def compute_objective_score(summary: dict[str, Any]) -> float:
-        """
-        Prioritizes satisfying the assignment constraint (max_pixel_error <= 1),
-        then minimizes total wrong pixels and continuous reconstruction loss.
-        """
         max_px = summary["max_pixel_error"]
         mean_px = summary["mean_pixel_error"]
         loss = summary["loss"]
         penalty = max(0, max_px - 1) * 10.0
         return float(penalty + max_px + mean_px + loss)
 
-    def run_search(self) -> tuple[BaseExerciseConfig, Any, dict[str, Any]]:
-        base_cfg = build_config_object(
-            {"exercise": self.spec.exercise, "dataset_path": self.spec.dataset_path, **self.spec.fixed_overrides}
-        )
-        dataset = base_cfg.load_dataset()
+    def run_search(self, dataset: DatasetBundle | None = None) -> tuple[AutoencoderConfig, Any, dict[str, Any]]:
+        if dataset is None:
+            base_cfg = self.config_factory(
+                {"model_type": self.spec.model_type, "dataset_path": self.spec.dataset_path, **self.spec.fixed_overrides}
+            )
+            dataset = base_cfg.build_dataset()
 
         study = optuna.create_study(direction="minimize", sampler=TPESampler(seed=42))
         self.thread_running = True
@@ -161,13 +148,13 @@ class BayesianAutoencoderSearcher:
 
         def objective(trial: optuna.Trial) -> float:
             cfg = self._sample_trial_config(trial)
-            model = cfg.get_model()
+            model = cfg.build_model()
             start_time = time.time()
             best_trial_score = float("inf")
             best_trial_summary: dict[str, Any] | None = None
 
             print(
-                f"\n>>> Trial #{trial.number} | Arch={cfg.encoder_layers} | "
+                f"\n>>> Trial #{trial.number} | Model={cfg.model_type} | Arch={cfg.encoder_layers} | "
                 f"Hid={cfg.hidden_activation} | Lat={cfg.latent_activation} | "
                 f"Batch={cfg.batch_size} | LR={cfg.learning_rate:.5f}"
             )
@@ -189,10 +176,9 @@ class BayesianAutoencoderSearcher:
                         self._best_score = score
                         self.best_config = cfg
                         self.best_summary = summary
-                        current_model.save(self.output_dir / "best_autoencoder.pkl")
+                        current_model.save(self.output_dir / "best_model.pkl")
 
                     trial.report(score, epoch)
-                    # Stop trial early if all 32 patterns have 0 pixel errors
                     if summary["max_pixel_error"] == 0 and summary["loss"] < 0.01:
                         return True
 
@@ -229,10 +215,9 @@ class BayesianAutoencoderSearcher:
         listener.join(timeout=0.5)
 
         study.trials_dataframe().to_csv(self.output_dir / "optuna_trials.csv", index=False)
-        if self.best_config is None:
+        if self.best_config is None or self.best_summary is None:
             raise RuntimeError("No valid trial completed during Bayesian search.")
 
-        # Reload best saved model checkpoint
-        self.best_config.load_model_path = self.output_dir / "best_autoencoder.pkl"
-        self.best_model = self.best_config.get_model()
+        self.best_config.load_model_path = self.output_dir / "best_model.pkl"
+        self.best_model = self.best_config.build_model()
         return self.best_config, self.best_model, self.best_summary

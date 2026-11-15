@@ -5,7 +5,7 @@ from numpy.typing import NDArray
 
 from ..activation_functions.base_activation import ActivationFunction
 from ..loss_functions.base import Loss
-from ..noises.base import NoiseStrategy
+from ..noises.base import Noise
 from ..optimizers.base import Optimizer
 from .autoencoder import Autoencoder
 from .mlp import MLP
@@ -22,7 +22,7 @@ class DenoisingAutoencoder(Autoencoder):
         output_activation: ActivationFunction,
         loss_function: Loss,
         optimizer: Callable[..., Optimizer],
-        noise_strategy: NoiseStrategy,
+        noise_strategy: Noise,
         decoder_layers: list[int] | None = None,
         seed: int = 42,
     ) -> None:

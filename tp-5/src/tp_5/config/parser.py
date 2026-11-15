@@ -11,9 +11,9 @@ def nullable_int(val: str) -> int | None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Builds and returns the argument parser for TP5: Deep Learning (Autoencoders & VAE)."""
+    """Builds and returns the argument parser for Autoencoder, DenoisingAutoencoder & VariationalAutoencoder."""
     parser = argparse.ArgumentParser(
-        description="TP5: Basic Autoencoder, Denoising Autoencoder & Variational Autoencoder",
+        description="Autoencoder, Denoising Autoencoder & Variational Autoencoder Runner",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
@@ -25,16 +25,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to a JSON/TOML configuration file. CLI arguments override JSON/TOML values.",
     )
 
-    # Exercise & Dataset Parameters
-    data = parser.add_argument_group("Exercise & Dataset Parameters")
-    data.add_argument(
-        "-e",
-        "--exercise",
-        type=str,
-        default="1a",
-        choices=["1a", "1b", "2"],
-        help="Assignment exercise to run: '1a' (Basic AE), '1b' (Denoising AE), or '2' (VAE)",
-    )
+    # Dataset Parameters
+    data = parser.add_argument_group("Dataset Parameters")
     data.add_argument(
         "-d",
         "--dataset-path",
@@ -46,11 +38,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--subset-size",
         type=nullable_int,
         default=None,
-        help="Optional subset size of characters to train on (default: all 32 patterns)",
+        help="Optional subset size of patterns to train on (default: full dataset)",
     )
 
-    # Architecture Parameters
-    model = parser.add_argument_group("Autoencoder Architecture")
+    # Model & Architecture Parameters
+    model = parser.add_argument_group("Model & Architecture Parameters")
+    model.add_argument(
+        "-m",
+        "--model-type",
+        type=str,
+        default="autoencoder",
+        choices=["autoencoder", "denoising_autoencoder", "variational_autoencoder"],
+        help="Model class name to resolve dynamically via reflection",
+    )
     model.add_argument(
         "-a",
         "--encoder-layers",
@@ -70,52 +70,54 @@ def build_parser() -> argparse.ArgumentParser:
         "--hidden-activation",
         type=str,
         default="tanh",
-        choices=["linear", "sigmoid", "tanh", "relu"],
-        help="Activation function for encoder/decoder hidden layers",
+        help="Activation function class name for hidden layers",
     )
     model.add_argument(
         "--latent-activation",
         type=str,
         default="linear",
-        choices=["linear", "sigmoid", "tanh", "relu"],
-        help="Activation function for the 2D latent bottleneck layer",
+        help="Activation function class name for the latent bottleneck layer",
     )
     model.add_argument(
         "--output-activation",
         type=str,
         default="sigmoid",
-        choices=["linear", "sigmoid", "tanh", "relu"],
-        help="Activation function for the reconstruction output layer",
+        help="Activation function class name for the output reconstruction layer",
     )
     model.add_argument("--beta", type=float, default=1.0, help="Beta slope for Sigmoid/Tanh")
 
-    # Denoising & VAE Specifics
-    special = parser.add_argument_group("Denoising (1b) & VAE (2) Parameters")
+    # Denoising & Variational Parameters
+    special = parser.add_argument_group("Denoising & Variational Parameters")
     special.add_argument(
         "--noise-type",
         type=str,
         default="bit_flip",
-        choices=["none", "bit_flip", "gaussian", "masking"],
-        help="Noise corruption strategy for Exercise 1b",
+        help="Noise class name in tp_5.engine.noises (e.g. no_noise, bit_flip, gaussian, masking)",
     )
     special.add_argument(
         "--noise-level",
         type=float,
         default=0.1,
-        help="Corruption intensity/probability for Exercise 1b",
+        help="Corruption intensity/probability for DenoisingAutoencoder",
     )
     special.add_argument(
         "--eval-noise-levels",
         type=float,
         nargs="+",
         default=[0.05, 0.10, 0.20, 0.30],
-        help="Noise levels evaluated in the Exercise 1b robustness study",
+        help="Noise levels evaluated in the denoising robustness study",
+    )
+    special.add_argument(
+        "--kl-loss",
+        type=str,
+        default="kl_divergence",
+        help="Divergence loss class name for VariationalAutoencoder",
     )
     special.add_argument(
         "--kl-weight",
         type=float,
         default=0.001,
-        help="KL divergence weight (beta) for Variational Autoencoder in Exercise 2",
+        help="KL divergence weight (beta) for VariationalAutoencoder",
     )
 
     # Optimization & Training
@@ -125,16 +127,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--optimizer",
         type=str,
         default="adam",
-        choices=["sgd", "momentum", "rmsprop", "adam"],
-        help="Optimization algorithm",
+        help="Optimizer class name in tp_5.engine.optimizers (sgd, momentum, rmsprop, adam)",
     )
     train.add_argument("--momentum-beta", type=float, default=0.9, help="Momentum alpha coefficient")
     train.add_argument(
         "--loss",
         type=str,
         default="binary_cross_entropy",
-        choices=["mean_squared_error", "binary_cross_entropy"],
-        help="Reconstruction loss function",
+        help="Reconstruction loss class name in tp_5.engine.loss_functions",
     )
     train.add_argument("--batch-size", type=nullable_int, default=8, help="Mini-batch size")
     train.add_argument("--max-epochs", type=int, default=4000, help="Maximum training epochs")
