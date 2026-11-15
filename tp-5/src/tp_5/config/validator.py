@@ -2,7 +2,7 @@ import os
 from typing import Any, Dict
 
 def validate_config(cfg: Dict[str, Any]) -> None:
-    """Validates the consistency of the input configuration data for TP3."""
+    """Validates the consistency of the input configuration data for TP5."""
     # Verificación de archivos de dataset
     dataset_path = cfg.get("dataset_path")
     if not dataset_path:

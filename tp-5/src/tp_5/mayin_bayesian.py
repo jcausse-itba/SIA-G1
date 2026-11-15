@@ -1,290 +1,238 @@
-# main_bayesian.py
-
+from dataclasses import dataclass, field
 import sys
-import time
 import threading
-import json
+import time
 from pathlib import Path
-from functools import partial
+from typing import Any, Callable
 
 import numpy as np
-import pandas as pd
 import optuna
 from optuna.samplers import TPESampler
 
-# -- Direct Class Imports (No Reflection/Parser) --
-from tp_5.engine.models.mlp import MLP
-from tp_5.engine.activation_functions.relu import ReLU
-from tp_5.engine.loss_functions.bce import BinaryCrossEntropy
-from tp_5.engine.optimizers.adam import Adam
+from tp_5.config.validator import BaseExerciseConfig, build_config_object
 
-# =========================================================================
-# GLOBALS & CONSTANTS
-# =========================================================================
-DATASET_PATH = Path("./data/more_digits.csv")
-OUTPUT_DIR = Path("optuna_outputs")
 
-MAX_TRIALS         = 10000 
-TIME_PER_TRIAL_SEC = 60 * 5       # 5 minutes per trial
-MAX_EPOCHS         = 100000000    # Effectively no epoch limit
+@dataclass
+class SearchSpaceSpec:
+    """Encapsulates the hyperparameter search space and objective rules for an exercise."""
 
-INPUT_SIZE  = 784  # 28x28 images
-NUM_CLASSES = 10   # Digit classification
+    exercise: str = "1a"
+    dataset_path: str = "doc/font.h"
+    input_dim: int = 35
+    latent_dim: int = 2
 
-stop_optimization = False
-thread_running = True
+    candidate_architectures: dict[str, list[int]] = field(
+        default_factory=lambda: {
+            "35-32-16-2": [35, 32, 16, 2],
+            "35-64-32-16-2": [35, 64, 32, 16, 2],
+            "35-48-24-2": [35, 48, 24, 2],
+            "35-64-24-2": [35, 64, 24, 2],
+        }
+    )
+    hidden_activations: list[str] = field(default_factory=lambda: ["tanh", "relu", "sigmoid"])
+    latent_activations: list[str] = field(default_factory=lambda: ["linear", "tanh"])
+    output_activation: str = "sigmoid"
+    losses: list[str] = field(default_factory=lambda: ["binary_cross_entropy", "mean_squared_error"])
+    optimizers: list[str] = field(default_factory=lambda: ["adam"])
+    batch_sizes: list[int] = field(default_factory=lambda: [4, 8, 16, 32])
+    lr_range: tuple[float, float] = (5e-4, 2e-2)
+    beta1_range: tuple[float, float] = (0.85, 0.99)
+    beta2_range: tuple[float, float] = (0.95, 0.9999)
+    epsilon_range: tuple[float, float] = (1e-8, 1e-6)
 
-# =========================================================================
-# KEYBOARD LISTENER
-# =========================================================================
-def listen_for_quit():
-    """Background listener catching Shift+Q (capital 'Q') cross-platform."""
-    global stop_optimization
-    print("\n[INFO] Presiona 'Shift+Q' (Q mayúscula) en cualquier momento para detener la optimización de forma segura.")
-    try:
-        import msvcrt
-        while thread_running:
-            if msvcrt.kbhit():
-                if msvcrt.getch() == b'Q':
-                    stop_optimization = True
-                    print("\n[!] Shift+Q detectado. Deteniendo optimización al final del trial actual...")
+    # Extra exercise parameters (e.g. noise_type/noise_level for 1b, kl_weight for 2)
+    fixed_overrides: dict[str, Any] = field(default_factory=dict)
+
+    # Optimization limits
+    max_trials: int = 50
+    time_per_trial_sec: float = 30.0
+    max_epochs_per_trial: int = 6000
+    eval_every_epochs: int = 25
+
+
+class BayesianAutoencoderSearcher:
+    """Generalized Optuna Bayesian Searcher for Autoencoder architectures."""
+
+    def __init__(self, spec: SearchSpaceSpec, output_dir: str | Path = "optuna_outputs") -> None:
+        self.spec = spec
+        self.output_dir = Path(output_dir) / f"ex_{spec.exercise}"
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.stop_optimization = False
+        self.thread_running = False
+        self.best_model: Any = None
+        self.best_config: BaseExerciseConfig | None = None
+        self.best_summary: dict[str, Any] | None = None
+        self._best_score = float("inf")
+
+    def _listen_for_quit(self) -> None:
+        """Background listener catching Shift+Q ('Q') cross-platform."""
+        print("\n[INFO] Press 'Shift+Q' at any time to safely stop Bayesian optimization after the current trial.")
+        try:
+            import msvcrt
+
+            while self.thread_running:
+                if msvcrt.kbhit() and msvcrt.getch() == b"Q":
+                    self.stop_optimization = True
+                    print("\n[!] Shift+Q detected. Stopping optimization at the end of current trial...")
                     break
-            time.sleep(0.1)
-    except ImportError:
-        import select
-        try:
-            import termios
-            import tty
-            fd = sys.stdin.fileno()
-            old_settings = termios.tcgetattr(fd)
-            tty.setcbreak(fd)
-            has_termios = True
-        except Exception:
-            has_termios = False
+                time.sleep(0.1)
+        except ImportError:
+            import select
 
-        try:
-            while thread_running:
+            try:
+                import termios
+                import tty
+
+                fd = sys.stdin.fileno()
+                old_settings = termios.tcgetattr(fd)
+                tty.setcbreak(fd)
+                has_termios = True
+            except Exception:
+                has_termios = False
+
+            try:
+                while self.thread_running:
+                    if has_termios and select.select([sys.stdin], [], [], 0.1)[0]:
+                        if sys.stdin.read(1) == "Q":
+                            self.stop_optimization = True
+                            print("\n[!] Shift+Q detected. Stopping optimization...")
+                            break
+                    else:
+                        time.sleep(0.2)
+            finally:
                 if has_termios:
-                    try:
-                        if select.select([sys.stdin], [], [], 0.1)[0]:
-                            c = sys.stdin.read(1)
-                            if c == 'Q':
-                                stop_optimization = True
-                                print("\n[!] Shift+Q detectado. Deteniendo optimización al final del trial actual...")
-                                break
-                    except Exception:
-                        time.sleep(0.5)
-                else:
-                    time.sleep(0.5)
-        finally:
-            if has_termios:
-                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
-def stop_callback(study, trial):
-    if stop_optimization:
-        study.stop()
+    def _sample_trial_config(self, trial: optuna.Trial) -> BaseExerciseConfig:
+        arch_key = trial.suggest_categorical("architecture", list(self.spec.candidate_architectures.keys()))
+        encoder_layers = self.spec.candidate_architectures[arch_key]
+        hidden_act = trial.suggest_categorical("hidden_activation", self.spec.hidden_activations)
+        latent_act = trial.suggest_categorical("latent_activation", self.spec.latent_activations)
+        loss_name = trial.suggest_categorical("loss", self.spec.losses)
+        opt_name = trial.suggest_categorical("optimizer", self.spec.optimizers)
+        batch_size = trial.suggest_categorical("batch_size", self.spec.batch_sizes)
+        lr = trial.suggest_float("learning_rate", *self.spec.lr_range, log=True)
+        beta1 = trial.suggest_float("beta1", *self.spec.beta1_range)
+        beta2 = trial.suggest_float("beta2", *self.spec.beta2_range)
+        epsilon = trial.suggest_float("epsilon", *self.spec.epsilon_range, log=True)
 
-# =========================================================================
-# ARCHITECTURE INFERENCE & DATA LOADING
-# =========================================================================
-def infer_architecture(depth: int) -> list[int]:
-    """Infers a well-structured bottleneck architecture exclusively from depth."""
-    if depth == 1:
-        return [INPUT_SIZE, NUM_CLASSES]
-    elif depth == 2:
-        return [INPUT_SIZE, 128, NUM_CLASSES]
-    elif depth == 3:
-        return [INPUT_SIZE, 256, 64, NUM_CLASSES]
-    elif depth == 4:
-        return [INPUT_SIZE, 512, 128, 32, NUM_CLASSES]
-    else:
-        # Fallback for depth >= 5
-        return [INPUT_SIZE, 512, 256, 128, 64, NUM_CLASSES]
+        raw = {
+            "exercise": self.spec.exercise,
+            "dataset_path": self.spec.dataset_path,
+            "encoder_layers": encoder_layers,
+            "hidden_activation": hidden_act,
+            "latent_activation": latent_act,
+            "output_activation": self.spec.output_activation,
+            "loss": loss_name,
+            "optimizer": opt_name,
+            "batch_size": batch_size,
+            "learning_rate": lr,
+            "beta1": beta1,
+            "beta2": beta2,
+            "epsilon": epsilon,
+            "max_epochs": self.spec.max_epochs_per_trial,
+            "seed": 42 + trial.number,
+            **self.spec.fixed_overrides,
+        }
+        return build_config_object(raw)
 
+    @staticmethod
+    def compute_objective_score(summary: dict[str, Any]) -> float:
+        """
+        Prioritizes satisfying the assignment constraint (max_pixel_error <= 1),
+        then minimizes total wrong pixels and continuous reconstruction loss.
+        """
+        max_px = summary["max_pixel_error"]
+        mean_px = summary["mean_pixel_error"]
+        loss = summary["loss"]
+        penalty = max(0, max_px - 1) * 10.0
+        return float(penalty + max_px + mean_px + loss)
 
-def load_dataset():
-    """Loads dataset once into memory to avoid JSON parsing bottlenecks inside the objective loop."""
-    print(f"\n[INFO] Loading dataset from {DATASET_PATH}...")
-    df = pd.read_csv(DATASET_PATH)
-
-    # Assumes Col 0 is label, Col 1 is stringified image array
-    label_col = df.columns[0]
-    image_col = df.columns[1]
-
-    targets = df[label_col].to_numpy().astype(int)
-    
-    print("[INFO] Parsing string arrays to float matrices (this takes a few seconds)...")
-    # Quick parsing
-    images = [
-        val if isinstance(val, list) else json.loads(str(val))
-        for val in df[image_col]
-    ]
-    X = np.array(images, dtype=np.float64)
-
-    # One-hot encoding for multi-class BCE
-    y = np.eye(NUM_CLASSES, dtype=np.float64)[targets]
-
-    # Split Train/Val (80/20) - fixed random seed for consistent evaluation
-    np.random.seed(42)
-    indices = np.random.permutation(len(X))
-    split_idx = int(0.8 * len(X))
-
-    train_idx, val_idx = indices[:split_idx], indices[split_idx:]
-    print(f"[INFO] Dataset ready: Train={len(train_idx)}, Val={len(val_idx)}")
-    return X[train_idx], y[train_idx], X[val_idx], y[val_idx]
-
-# =========================================================================
-# OBJECTIVE FUNCTION
-# =========================================================================
-def objective(trial: optuna.Trial, X_train, y_train, X_val, y_val) -> float:
-    # 1. Hyperparameter Search Space
-    lr = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
-    batch_size = trial.suggest_categorical("batch_size", [32, 64, 128, 256, 512])
-    
-    depth = trial.suggest_int("depth", 1, 5)
-    layer_sizes = infer_architecture(depth)
-    
-    beta1 = trial.suggest_float("beta1", 0.8, 0.999)
-    beta2 = trial.suggest_float("beta2", 0.9, 0.9999)
-    epsilon = trial.suggest_float("epsilon", 1e-8, 1e-5, log=True)
-
-    print(f"\n>>> Starting Trial #{trial.number} | Depth={depth} | Batch={batch_size} | LR={lr:.5f}")
-
-    # 2. Setup Model instances directly
-    act_fn = ReLU()
-    out_act_fn = Sigmoid()  # Required to keep predictions [0, 1] for BCE
-    loss_fn = BinaryCrossEntropy()
-    opt_factory = partial(Adam, beta1=beta1, beta2=beta2, epsilon=epsilon)
-
-    model = MLP(
-        layer_sizes=layer_sizes,
-        input_activation=act_fn,
-        output_activation=out_act_fn,
-        loss_function=loss_fn,
-        optimizer=opt_factory
-    )
-
-    # 3. Time limit logic and callback evaluation
-    start_time = time.time()
-    best_val_loss = float('inf')
-
-    def epoch_callback(epoch: int, current_model: MLP) -> bool:
-        nonlocal best_val_loss
-
-        # Wallclock continuous cut-off check
-        elapsed = time.time() - start_time
-        if elapsed >= TIME_PER_TRIAL_SEC:
-            print(f"    [TimeLimit] Cutoff reached ({elapsed:.1f}s). Stopping Trial.")
-            return True 
-        
-        # Shift+Q flag check
-        if stop_optimization:
-            return True
-
-        # Perform fast evaluation every 5 epochs
-        if epoch % 5 == 0:
-            y_pred_val = current_model.forward(X_val)
-            # Multiply by batch_size or average natively? Assuming BCE returns scalar mean
-            val_loss = float(loss_fn.compute(y_pred_val, y_val))
-            
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-
-            # Report for continuous optimization logic / pruning
-            trial.report(val_loss, epoch)
-            if trial.should_prune():
-                raise optuna.TrialPruned()
-
-        return False
-
-    # 4. Train Model
-    try:
-        model.fit(
-            X_train, y_train,
-            batch_size=batch_size,
-            epochs=MAX_EPOCHS,  # Enforced no epoch limit, constrained by time
-            lr=lr,
-            print_every=10, 
-            epoch_callback=epoch_callback
+    def run_search(self) -> tuple[BaseExerciseConfig, Any, dict[str, Any]]:
+        base_cfg = build_config_object(
+            {"exercise": self.spec.exercise, "dataset_path": self.spec.dataset_path, **self.spec.fixed_overrides}
         )
-    except optuna.TrialPruned:
-        print(f"    [Pruned] Trial #{trial.number} pruned by Optuna.")
-        raise
-    except Exception as e:
-        print(f"[ERROR] Trial #{trial.number} failed with error: {e}")
-        return float('inf')
+        dataset = base_cfg.load_dataset()
 
-    return best_val_loss
+        study = optuna.create_study(direction="minimize", sampler=TPESampler(seed=42))
+        self.thread_running = True
+        listener = threading.Thread(target=self._listen_for_quit, daemon=True)
+        listener.start()
 
-# =========================================================================
-# MAIN
-# =========================================================================
-def main():
-    global thread_running
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        def objective(trial: optuna.Trial) -> float:
+            cfg = self._sample_trial_config(trial)
+            model = cfg.get_model()
+            start_time = time.time()
+            best_trial_score = float("inf")
+            best_trial_summary: dict[str, Any] | None = None
 
-    # Load dataset fully to RAM initially so it isn't bottlenecking trials
-    X_train, y_train, X_val, y_val = load_dataset()
+            print(
+                f"\n>>> Trial #{trial.number} | Arch={cfg.encoder_layers} | "
+                f"Hid={cfg.hidden_activation} | Lat={cfg.latent_activation} | "
+                f"Batch={cfg.batch_size} | LR={cfg.learning_rate:.5f}"
+            )
 
-    study = optuna.create_study(direction="minimize", sampler=TPESampler(seed=42))
+            def epoch_callback(epoch: int, current_model: Any) -> bool:
+                nonlocal best_trial_score, best_trial_summary
 
-    print(f"\n=== Iniciando Optuna Bayesian Search ===")
-    print(f" Límite de tiempo por trial: {TIME_PER_TRIAL_SEC}s")
-    
-    listener = threading.Thread(target=listen_for_quit, daemon=True)
-    listener.start()
+                if (time.time() - start_time) >= self.spec.time_per_trial_sec or self.stop_optimization:
+                    return True
 
-    # Create partial objective locked to our dataset variables
-    bound_objective = partial(
-        objective, 
-        X_train=X_train, y_train=y_train, 
-        X_val=X_val, y_val=y_val
-    )
+                if epoch % self.spec.eval_every_epochs == 0:
+                    summary = current_model.evaluate_reconstruction(dataset.inputs, dataset.inputs)
+                    score = self.compute_objective_score(summary)
+                    if score < best_trial_score:
+                        best_trial_score = score
+                        best_trial_summary = summary
 
-    study.optimize(
-        bound_objective, 
-        n_trials=MAX_TRIALS, 
-        callbacks=[stop_callback],
-        catch=(Exception,)
-    )
+                    if score < self._best_score:
+                        self._best_score = score
+                        self.best_config = cfg
+                        self.best_summary = summary
+                        current_model.save(self.output_dir / "best_autoencoder.pkl")
 
-    thread_running = False
-    listener.join(timeout=1.0)
+                    trial.report(score, epoch)
+                    # Stop trial early if all 32 patterns have 0 pixel errors
+                    if summary["max_pixel_error"] == 0 and summary["loss"] < 0.01:
+                        return True
 
-    # =========================================================================
-    # POST-PROCESSING
-    # =========================================================================
-    print("\n=========================================")
-    print("[OK] Optimización finalizada con éxito.")
-    
-    if len(study.trials) > 0 and study.best_trial:
-        print(f" Mejor Trial    : #{study.best_trial.number}")
-        print(f" Mejor Val Loss : {study.best_trial.value:.5f}")
-        print(" Mejores Parámetros:")
-        for key, value in study.best_trial.params.items():
-            print(f"   - {key}: {value}")
-    print("=========================================")
+                return False
 
-    # Continuous save triggers
-    results_df = study.trials_dataframe()
-    results_df.to_csv(OUTPUT_DIR / "optuna_summary_results.csv", index=False)
+            model.fit(
+                dataset.inputs,
+                dataset.inputs,
+                batch_size=cfg.batch_size,
+                epochs=cfg.max_epochs,
+                lr=cfg.learning_rate,
+                print_every=max(500, cfg.max_epochs // 4),
+                epoch_callback=epoch_callback,
+            )
 
-    try:
-        from optuna.visualization import plot_optimization_history, plot_param_importances, plot_slice
+            if best_trial_summary is None:
+                best_trial_summary = model.evaluate_reconstruction(dataset.inputs, dataset.inputs)
+                best_trial_score = self.compute_objective_score(best_trial_summary)
 
-        fig_hist = plot_optimization_history(study)
-        fig_hist.write_html(str(OUTPUT_DIR / "plot_optimization_history.html"))
+            print(
+                f"    [Trial #{trial.number} Done] MaxPxErr={best_trial_summary['max_pixel_error']} | "
+                f"<=1px={best_trial_summary['patterns_le_1_error']}/{best_trial_summary['num_patterns']} | "
+                f"Loss={best_trial_summary['loss']:.5f}"
+            )
+            return best_trial_score
 
-        fig_imp = plot_param_importances(study)
-        fig_imp.write_html(str(OUTPUT_DIR / "plot_param_importances.html"))
+        def stop_cb(st: optuna.Study, tr: optuna.trial.FrozenTrial) -> None:
+            if self.stop_optimization or (self.best_summary and self.best_summary["max_pixel_error"] == 0):
+                st.stop()
 
-        fig_slice = plot_slice(study)
-        fig_slice.write_html(str(OUTPUT_DIR / "plot_slice.html"))
+        study.optimize(objective, n_trials=self.spec.max_trials, callbacks=[stop_cb], catch=(Exception,))
 
-        print(f"\n[INFO] Gráficos de Plotly interactivos generados en el directorio: {OUTPUT_DIR}/")
-    except ImportError:
-        print("\n[WARN] 'plotly' no está instalado. Ejecuta 'pip install plotly' para generar los gráficos.")
+        self.thread_running = False
+        listener.join(timeout=0.5)
 
+        study.trials_dataframe().to_csv(self.output_dir / "optuna_trials.csv", index=False)
+        if self.best_config is None:
+            raise RuntimeError("No valid trial completed during Bayesian search.")
 
-if __name__ == "__main__":
-    main()
+        # Reload best saved model checkpoint
+        self.best_config.load_model_path = self.output_dir / "best_autoencoder.pkl"
+        self.best_model = self.best_config.get_model()
+        return self.best_config, self.best_model, self.best_summary
