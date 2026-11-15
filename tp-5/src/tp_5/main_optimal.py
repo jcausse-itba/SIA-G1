@@ -7,11 +7,11 @@ from pathlib import Path
 from functools import partial
 from concurrent.futures import ProcessPoolExecutor
 
-from tp_3.engine.models.mlp import MLP
-from tp_3.engine.activation_functions.relu import ReLU
-from tp_3.engine.activation_functions.sigmoid import Sigmoid 
-from tp_3.engine.loss_functions.bce import BinaryCrossEntropy
-from tp_3.engine.optimizers.adam import Adam
+from tp_5.engine.models.mlp import MLP
+from tp_5.engine.activation_functions.relu import ReLU
+from tp_5.engine.activation_functions.sigmoid import Sigmoid 
+from tp_5.engine.loss_functions.bce import BinaryCrossEntropy
+from tp_5.engine.optimizers.adam import Adam
 
 # =========================================================================
 # GLOBALS & CONSTANTS (OPTIMAL HYPERPARAMETERS)

@@ -10,12 +10,12 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from tp_3.config.loader import load_and_merge_config
-from tp_3.config.parser import build_parser
-from tp_3.config.validator import validate_config
-from tp_3.training_report import write_training_report
-from tp_3.metrics.metrics import EpochMetricsTracker
-from tp_3.metrics.report import write_fraud_metrics_report
+from tp_5.config.loader import load_and_merge_config
+from tp_5.config.parser import build_parser
+from tp_5.config.validator import validate_config
+from tp_5.training_report import write_training_report
+from tp_5.metrics.metrics import EpochMetricsTracker
+from tp_5.metrics.report import write_fraud_metrics_report
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -167,7 +167,7 @@ def main() -> None:
             test_inputs = (test_inputs - feature_mean) / feature_scale
 
             make_act = lambda name: instantiate_with_reflection(
-                resolve_class("tp_3.engine.activation_functions", name), config
+                resolve_class("tp_5.engine.activation_functions", name), config
             )
             configured_activation = make_act(config["activation"])
             if type(configured_activation).__name__ == "Step":
@@ -177,7 +177,7 @@ def main() -> None:
             hidden_activation = make_act("linear" if is_simple else config["activation"])
             output_activation = make_act("linear" if config["model_type"] == "simple_linear" else config["activation"])
 
-            opt_cls = resolve_class("tp_3.engine.optimizers", config["optimizer"])
+            opt_cls = resolve_class("tp_5.engine.optimizers", config["optimizer"])
             opt_sig = inspect.signature(opt_cls.__init__)
             opt_kwargs = {
                 p: config[k]
@@ -186,8 +186,8 @@ def main() -> None:
             }
             optimizer_factory = partial(opt_cls, **opt_kwargs) if opt_kwargs else opt_cls
 
-            mlp_cls = resolve_class("tp_3.engine.models", "mlp")
-            loss_cls = resolve_class("tp_3.engine.loss_functions", config["loss"])
+            mlp_cls = resolve_class("tp_5.engine.models", "mlp")
+            loss_cls = resolve_class("tp_5.engine.loss_functions", config["loss"])
             loss_fn = instantiate_with_reflection(loss_cls, config)
 
             np.random.seed(42)

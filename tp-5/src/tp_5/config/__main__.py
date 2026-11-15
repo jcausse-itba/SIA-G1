@@ -1,9 +1,9 @@
 import sys
 from tabulate import tabulate
 
-from tp_3.config.parser import build_parser
-from tp_3.config.loader import load_and_merge_config
-from tp_3.config.validator import validate_config
+from tp_5.config.parser import build_parser
+from tp_5.config.loader import load_and_merge_config
+from tp_5.config.validator import validate_config
 
 
 def print_config_table(config: dict) -> None:
