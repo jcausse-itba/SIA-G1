@@ -237,3 +237,5 @@ output/
 
 *.csv
 tp-3/metrics/*
+/tp-5/code
+/tp-5/images
