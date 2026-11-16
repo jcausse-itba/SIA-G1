@@ -44,6 +44,8 @@ class AutoencoderPipeline:
                 self.config.save_model_path,
                 metadata={
                     "model_type": self.config.model_type,
+                    "dataset_path": str(self.config.dataset_path),
+                    "subset_size": self.config.subset_size,
                     "encoder_layers": self.config.encoder_layers,
                     "labels": self.dataset.labels,
                     "max_pixel_error": eval_summary["max_pixel_error"],

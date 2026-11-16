@@ -1,145 +1,165 @@
-# main_optimal.py
+import argparse
+from typing import Any
 
-import json
-import numpy as np
-import pandas as pd
-from pathlib import Path
-from functools import partial
-from concurrent.futures import ProcessPoolExecutor
-
-from tp_5.engine.models.mlp import MLP
-from tp_5.engine.activation_functions.relu import ReLU
-from tp_5.engine.activation_functions.sigmoid import Sigmoid 
-from tp_5.engine.loss_functions.bce import BinaryCrossEntropy
-from tp_5.engine.optimizers.adam import Adam
+from tp_5.__main__ import build_pipeline
+from tp_5.config.validator import build_config_object
+from tp_5.main_bayesian import BayesianAutoencoderSearcher, SearchSpaceSpec
+from tp_5.training_report import TrainingReporter
 
 # =========================================================================
-# GLOBALS & CONSTANTS (OPTIMAL HYPERPARAMETERS)
+# HARDCODED OPTIMAL CONFIGURATIONS BY MODEL TYPE
 # =========================================================================
-DATASET_PATH = Path("./data/more_digits.csv")
-MODELS_DIR = Path("saved_models")
-
-# Training loops & concurrency
-NUM_MODELS_TO_TRAIN = 8
-EPOCHS = 150 
-NUM_PROCESSES = 4 
-
-# Optimal Hyperparameters from Optuna
-BATCH_SIZE = 128
-LR = 0.0019381547751445255
-BETA1 = 0.8058612186367159
-BETA2 = 0.9325569828221307
-EPSILON = 3.726638258124091e-08
-
-# Depth 5 inferred architecture
-ARCHITECTURE = [784, 512, 256, 128, 64, 10]
-NUM_CLASSES = 10
-
-# =========================================================================
-# DATA LOADING
-# =========================================================================
-def load_dataset():
-    """Loads and preprocesses the dataset."""
-    print(f"\n[INFO] Loading dataset from {DATASET_PATH}...")
-    df = pd.read_csv(DATASET_PATH)
-
-    label_col = df.columns[0]
-    image_col = df.columns[1]
-
-    targets = df[label_col].to_numpy().astype(int)
-    
-    print("[INFO] Parsing string arrays to float matrices...")
-    images = [
-        val if isinstance(val, list) else json.loads(str(val))
-        for val in df[image_col]
-    ]
-    X = np.array(images, dtype=np.float64)
-
-    y = np.eye(NUM_CLASSES, dtype=np.float64)[targets]
-
-    # Split Train/Val (80/20) - fixed random seed for consistent evaluation
-    np.random.seed(42)
-    indices = np.random.permutation(len(X))
-    split_idx = int(0.8 * len(X))
-
-    train_idx, val_idx = indices[:split_idx], indices[split_idx:]
-    print(f"[INFO] Dataset ready: Train={len(train_idx)}, Val={len(val_idx)}")
-    
-    return X[train_idx], y[train_idx], X[val_idx], y[val_idx]
-
-# =========================================================================
-# METRICS
-# =========================================================================
-def calculate_accuracy(y_pred: np.ndarray, y_true: np.ndarray) -> float:
-    """Calculates accuracy by taking the argmax of one-hot/probability arrays."""
-    pred_classes = np.argmax(y_pred, axis=1)
-    true_classes = np.argmax(y_true, axis=1)
-    return np.mean(pred_classes == true_classes)
+OPTIMAL_MODEL_CONFIGS: dict[str, dict[str, Any]] = {
+    "autoencoder": {
+        "model_type": "autoencoder",
+        "dataset_path": "doc/font.h",
+        "encoder_layers": [35, 64, 32, 16, 2],
+        "decoder_layers": [16, 32, 64, 35],
+        "hidden_activation": "tanh",
+        "latent_activation": "linear",
+        "output_activation": "sigmoid",
+        "loss": "binary_cross_entropy",
+        "optimizer": "adam",
+        "learning_rate": 0.004,
+        "batch_size": 8,
+        "max_epochs": 5000,
+        "save_model_path": "saved_models/autoencoder_optimal.pkl",
+        "output_dir": "results",
+    },
+    "denoising_autoencoder": {
+        "model_type": "denoising_autoencoder",
+        "dataset_path": "doc/font.h",
+        "encoder_layers": [35, 64, 32, 2],
+        "decoder_layers": [32, 64, 35],
+        "hidden_activation": "tanh",
+        "latent_activation": "tanh",
+        "output_activation": "sigmoid",
+        "noise_type": "bit_flip",
+        "noise_level": 0.10,
+        "eval_noise_levels": [0.05, 0.10, 0.20, 0.30],
+        "loss": "binary_cross_entropy",
+        "optimizer": "adam",
+        "learning_rate": 0.003,
+        "batch_size": 8,
+        "max_epochs": 5000,
+        "save_model_path": "saved_models/denoising_autoencoder_optimal.pkl",
+        "output_dir": "results",
+    },
+    "variational_autoencoder": {
+        "model_type": "variational_autoencoder",
+        "dataset_path": "code_dataset/code",
+        "subset_size": 100,
+        "encoder_layers": [1000, 256, 128, 16],
+        "decoder_layers": [128, 256, 1000],
+        "hidden_activation": "tanh",
+        "latent_activation": "linear",
+        "output_activation": "linear",
+        "kl_loss": "kl_divergence",
+        "kl_weight": 0.00001,
+        "loss": "mean_squared_error",
+        "optimizer": "adam",
+        "learning_rate": 0.001,
+        "batch_size": 16,
+        "max_epochs": 2500,
+        "save_model_path": "saved_models/vae_code_optimal.pkl",
+        "output_dir": "results",
+    },
+}
 
 # =========================================================================
-# WORKER TASK
+# BAYESIAN SEARCH SPACES BY MODEL TYPE
 # =========================================================================
-def train_single_model(i: int, X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarray, y_val: np.ndarray):
-    """Trains a single MLP instance in its own process."""
-    act_fn = ReLU()
-    out_act_fn = Sigmoid()  
-    loss_fn = BinaryCrossEntropy()
-    opt_factory = partial(Adam, beta1=BETA1, beta2=BETA2, epsilon=EPSILON)
+BAYESIAN_SEARCH_SPECS: dict[str, SearchSpaceSpec] = {
+    "autoencoder": SearchSpaceSpec(
+        model_type="autoencoder",
+        dataset_path="doc/font.h",
+        candidate_architectures={
+            "35-32-16-2": [35, 32, 16, 2],
+            "35-64-32-16-2": [35, 64, 32, 16, 2],
+            "35-48-24-2": [35, 48, 24, 2],
+        },
+        hidden_activations=["tanh", "relu"],
+        latent_activations=["linear", "tanh"],
+        losses=["binary_cross_entropy", "mean_squared_error"],
+        batch_sizes=[4, 8, 16],
+        lr_range=(1e-3, 1.5e-2),
+        max_trials=30,
+        time_per_trial_sec=25.0,
+        max_epochs_per_trial=5000,
+    ),
+    "denoising_autoencoder": SearchSpaceSpec(
+        model_type="denoising_autoencoder",
+        dataset_path="doc/font.h",
+        fixed_overrides={"noise_type": "bit_flip", "noise_level": 0.10},
+        max_trials=25,
+        time_per_trial_sec=25.0,
+        max_epochs_per_trial=5000,
+    ),
+    "variational_autoencoder": SearchSpaceSpec(
+        model_type="variational_autoencoder",
+        dataset_path="code_dataset/code",
+        candidate_architectures={
+            "1000-256-128-8": [1000, 256, 128, 8],
+            "1000-256-128-16": [1000, 256, 128, 16],
+            "1000-512-256-16": [1000, 512, 256, 16],
+        },
+        hidden_activations=["tanh", "relu"],
+        latent_activations=["linear"],
+        output_activation="linear",
+        losses=["mean_squared_error"],
+        batch_sizes=[16, 32],
+        lr_range=(3e-4, 3e-3),
+        fixed_overrides={"kl_loss": "kl_divergence", "kl_weight": 1e-5, "subset_size": 100},
+        max_trials=15,
+        time_per_trial_sec=45.0,
+        max_epochs_per_trial=2000,
+    ),
+}
 
-    print(f"\n--- Entrenando Modelo {i}/{NUM_MODELS_TO_TRAIN} ---")
-    
-    # Instantiate a fresh model
-    model = MLP(
-        layer_sizes=ARCHITECTURE,
-        input_activation=act_fn,
-        output_activation=out_act_fn,
-        loss_function=loss_fn,
-        optimizer=opt_factory
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Optimal Autoencoder Runner & Bayesian Hyperparameter Optimizer"
     )
-    
-    # Train
-    model.fit(
-        X_train, y_train,
-        batch_size=BATCH_SIZE,
-        epochs=EPOCHS,
-        lr=LR,
-        print_every=10
+    parser.add_argument(
+        "-m",
+        "--model-type",
+        default="variational_autoencoder",
+        choices=list(OPTIMAL_MODEL_CONFIGS.keys()),
+        help="Model architecture to train or optimize (default: 'variational_autoencoder')",
     )
-    
-    # Evaluate validation set
-    y_pred_val = model.forward(X_val)
-    val_loss = float(loss_fn.compute(y_pred_val, y_val))
-    val_acc = calculate_accuracy(y_pred_val, y_val)
-    
-    print(f"-> Modelo {i} finalizado | Val Loss: {val_loss:.5f} | Val Accuracy: {val_acc:.5f}")
-    
-    # Modularized saving using BaseModel.save()
-    filename = f"mlp_model_{i}_loss_{val_loss:.4f}_acc_{val_acc:.4f}.pkl"
-    filepath = MODELS_DIR / filename
-    model.save(filepath, metadata={"val_loss": val_loss, "val_acc": val_acc})
-        
-    print(f"[OK] Modelo guardado en: {filepath}")
-
-# =========================================================================
-# MAIN LOOP
-# =========================================================================
-def main():
-    MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    
-    X_train, y_train, X_val, y_val = load_dataset()
-
-    print(f"\n=== Iniciando Generación de Modelos ({NUM_PROCESSES} procesos en paralelo) ===")
-    
-    train_task = partial(
-        train_single_model, 
-        X_train=X_train, y_train=y_train, 
-        X_val=X_val, y_val=y_val
+    parser.add_argument(
+        "--bayesian",
+        action="store_true",
+        help="Run Optuna Bayesian search before generating final reports",
     )
+    args = parser.parse_args()
 
-    with ProcessPoolExecutor(max_workers=NUM_PROCESSES) as executor:
-        list(executor.map(train_task, range(1, NUM_MODELS_TO_TRAIN + 1)))
+    if args.bayesian:
+        spec = BAYESIAN_SEARCH_SPECS[args.model_type]
+        searcher = BayesianAutoencoderSearcher(spec=spec, config_factory=build_config_object)
+        best_cfg, best_model, best_summary = searcher.run_search()
+        dataset = best_cfg.build_dataset()
 
-    print(f"\n[INFO] {NUM_MODELS_TO_TRAIN} modelos generados exitosamente en la carpeta '{MODELS_DIR}'.")
+        reporter = TrainingReporter(output_dir=best_cfg.output_dir, model_name=best_cfg.model_type)
+        reporter.write_reports(
+            loss_history=[best_summary["loss"]],
+            eval_summary=best_summary,
+            dataset_inputs=dataset.inputs,
+            labels=dataset.labels,
+            image_shape=dataset.image_shape,
+            model=best_model,
+        )
+        print(
+            f"\n[OK] Best Bayesian Model ({best_cfg.model_type}): "
+            f"Arch={best_cfg.encoder_layers}, MaxErr={best_summary['max_pixel_error']}, "
+            f"<=1err={best_summary['patterns_le_1_error']}/{best_summary['num_patterns']}"
+        )
+    else:
+        config = build_config_object(OPTIMAL_MODEL_CONFIGS[args.model_type])
+        pipeline = build_pipeline(config)
+        pipeline.run()
+
 
 if __name__ == "__main__":
     main()

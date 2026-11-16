@@ -66,8 +66,13 @@ class Autoencoder(MLP):
         """Evaluates pixel-level reconstruction accuracy and latent encodings."""
         target = X_input if X_target is None else X_target
         probs = self.forward(X_input)
-        reconstructed = (probs >= threshold).astype(np.float64)
-        target_bin = (target >= threshold).astype(np.float64)
+        is_binary = np.all((target == 0.0) | (target == 1.0))
+        if is_binary:
+            reconstructed = (probs >= threshold).astype(np.float64)
+            target_bin = (target >= threshold).astype(np.float64)
+        else:
+            reconstructed = np.clip(np.round(probs * 127.0), 0.0, 127.0)
+            target_bin = np.clip(np.round(target * 127.0), 0.0, 127.0)
 
         pixel_errors = np.sum(np.abs(target_bin - reconstructed), axis=1).astype(int)
         loss = float(self.loss_fn.compute(probs, target))

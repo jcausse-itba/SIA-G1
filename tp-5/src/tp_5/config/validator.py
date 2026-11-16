@@ -15,6 +15,7 @@ from numpy.typing import NDArray
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
+MAX_CODE_LEN = 1000
 
 ALIASES: dict[str, str] = {
     "linear": "identity",
@@ -26,6 +27,8 @@ ALIASES: dict[str, str] = {
     "none": "nonoise",
     "h": "fontdataset",
     "csv": "csvdataset",
+    "code": "codedataset",
+    "": "codedataset",
 }
 
 
@@ -76,7 +79,7 @@ def instantiate_with_reflection(
 
 
 # =========================================================================
-# POLYMORPHIC DATASET LOADERS (Resolved via Reflection by File Extension)
+# POLYMORPHIC DATASET LOADERS (Resolved via Reflection)
 # =========================================================================
 @dataclass(frozen=True)
 class DatasetBundle:
@@ -148,6 +151,50 @@ class CsvDataset(BaseDataset):
         return DatasetBundle(inputs=X, labels=labels, image_shape=shape)
 
 
+class CodeDataset(BaseDataset):
+    """
+    Loads fractal DSL code files (max length 1000 chars) from a directory into
+    normalized 1000-D float vectors in [0, 1] (ord(c) / 127.0, null-padded).
+    """
+
+    @staticmethod
+    def encode_text(text: str) -> NDArray[np.float64]:
+        vec = np.zeros(MAX_CODE_LEN, dtype=np.float64)
+        encoded = text[:MAX_CODE_LEN].encode("ascii", errors="ignore")
+        for i, byte_val in enumerate(encoded):
+            vec[i] = min(byte_val, 127) / 127.0
+        return vec
+
+    @staticmethod
+    def decode_vector(vec: NDArray[np.float64]) -> str:
+        codes = np.clip(np.round(np.asarray(vec, dtype=np.float64).ravel() * 127.0), 0, 127).astype(int)
+        chars: list[str] = []
+        for c in codes:
+            if c == 0:
+                continue
+            if c in (9, 10, 13) or 32 <= c <= 126:
+                chars.append(chr(c))
+            else:
+                chars.append(" ")
+        return "".join(chars).rstrip()
+
+    def load(self, path: Path, subset_size: int | None = None) -> DatasetBundle:
+        if not path.is_dir():
+            raise ValueError(f"CodeDataset expects a directory path, got: {path}")
+
+        files = sorted(f for f in path.iterdir() if f.is_file() and not f.name.startswith("."))
+        if not files:
+            raise ValueError(f"No code files found in directory: {path}")
+
+        if subset_size is not None:
+            files = files[:subset_size]
+
+        vectors = [self.encode_text(f.read_text(encoding="utf-8", errors="ignore")) for f in files]
+        labels = [f.name for f in files]
+        X = np.vstack(vectors)
+        return DatasetBundle(inputs=X, labels=labels, image_shape=(25, 40))
+
+
 # =========================================================================
 # DEPENDENCY INJECTION CONTAINER & CONFIGURATION OBJECT
 # =========================================================================
@@ -202,9 +249,12 @@ class AutoencoderConfig:
         path = Path(p)
         return path if path.is_absolute() else (PROJECT_ROOT / path).resolve()
 
+    def _dataset_loader_key(self) -> str:
+        return "code" if self.dataset_path.is_dir() else self.dataset_path.suffix
+
     def validate(self) -> None:
         if not self.dataset_path.exists():
-            raise FileNotFoundError(f"Dataset file not found at: {self.dataset_path}")
+            raise FileNotFoundError(f"Dataset path not found at: {self.dataset_path}")
         if self.load_model_path and not self.load_model_path.exists():
             raise FileNotFoundError(f"Pre-trained model file not found at: {self.load_model_path}")
         if self.learning_rate <= 0:
@@ -218,7 +268,6 @@ class AutoencoderConfig:
         if len(self.encoder_layers) < 2 or any(s <= 0 for s in self.encoder_layers):
             raise ValueError("encoder_layers must contain at least 2 positive integers.")
 
-        # Validate that all configured class names can be resolved via reflection
         resolve_class("tp_5.engine.models", self.model_type)
         resolve_class("tp_5.engine.activation_functions", self.hidden_activation)
         resolve_class("tp_5.engine.activation_functions", self.latent_activation)
@@ -226,14 +275,14 @@ class AutoencoderConfig:
         resolve_class("tp_5.engine.loss_functions", self.loss)
         resolve_class("tp_5.engine.optimizers", self.optimizer)
         resolve_class("tp_5.engine.noises", self.noise_type)
-        resolve_class(__name__, self.dataset_path.suffix)
+        resolve_class(__name__, self._dataset_loader_key())
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     def build_dataset(self) -> DatasetBundle:
-        """Resolves the dataset loader class via reflection on the file extension and loads data."""
-        loader_cls = resolve_class(__name__, self.dataset_path.suffix)
+        """Resolves the dataset loader class via reflection and loads data."""
+        loader_cls = resolve_class(__name__, self._dataset_loader_key())
         loader: BaseDataset = instantiate_with_reflection(loader_cls, self.to_dict())
         bundle = loader.load(self.dataset_path, self.subset_size)
         if bundle.inputs.shape[1] != self.encoder_layers[0]:
@@ -243,7 +292,6 @@ class AutoencoderConfig:
         return bundle
 
     def build_noise(self, override_level: float | None = None) -> Any:
-        """Resolves and instantiates a Noise strategy via reflection."""
         noise_cls = resolve_class("tp_5.engine.noises", self.noise_type)
         cfg = self.to_dict()
         if override_level is not None:
@@ -251,7 +299,6 @@ class AutoencoderConfig:
         return instantiate_with_reflection(noise_cls, cfg)
 
     def build_optimizer_factory(self) -> Callable[..., Any]:
-        """Resolves the Optimizer class via reflection and binds configured hyperparameters."""
         opt_cls = resolve_class("tp_5.engine.optimizers", self.optimizer)
         sig = inspect.signature(opt_cls.__init__)
         cfg = self.to_dict()
@@ -264,7 +311,6 @@ class AutoencoderConfig:
         return partial(opt_cls, **bound_kwargs) if bound_kwargs else opt_cls
 
     def build_model(self) -> Any:
-        """Resolves the target Model and injects all required collaborators via reflection."""
         np.random.seed(self.seed)
         if self.load_model_path:
             with self.load_model_path.open("rb") as f:
@@ -279,7 +325,6 @@ class AutoencoderConfig:
             resolve_class("tp_5.engine.loss_functions", name), cfg
         )
 
-        # Dependency Injection map: any constructor parameter matching these keys gets the injected instance
         injected_dependencies: dict[str, Any] = {
             "hidden_activation": make_act(self.hidden_activation),
             "input_activation": make_act(self.hidden_activation),
@@ -296,7 +341,6 @@ class AutoencoderConfig:
 
 
 def build_config_object(raw_config: dict[str, Any]) -> AutoencoderConfig:
-    """Builds and validates the AutoencoderConfig object dynamically matching constructor fields."""
     valid_fields = {
         name for name in inspect.signature(AutoencoderConfig.__init__).parameters if name != "self"
     }
@@ -305,5 +349,4 @@ def build_config_object(raw_config: dict[str, Any]) -> AutoencoderConfig:
 
 
 def validate_config(cfg: dict[str, Any]) -> AutoencoderConfig:
-    """Validates configuration dictionary and returns the dependency-injection config object."""
     return build_config_object(cfg)

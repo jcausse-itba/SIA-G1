@@ -1,587 +1,811 @@
+import base64
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
+from pathlib import Path
+import pickle
+import re
+import subprocess
+import tempfile
 from typing import Any
 import webbrowser
 
 import numpy as np
 from numpy.typing import NDArray
 
-from tp_5.config.loader import load_and_merge_config
-from tp_5.config.parser import build_parser
-from tp_5.config.validator import AutoencoderConfig, DatasetBundle, build_config_object
+from tp_5.config.validator import (
+    MAX_CODE_LEN,
+    PROJECT_ROOT,
+    CodeDataset,
+    DatasetBundle,
+    build_config_object,
+)
 from tp_5.engine.models.autoencoder import Autoencoder
+
+COMPILER_PATH = PROJECT_ROOT / "code_dataset" / "Flex-Bison-Compiler"
+NUM_REGEX = re.compile(r"[-+]?\d*\.\d+|[-+]?\d+")
+HEX_COLOR_REGEX = re.compile(r"#[0-9a-fA-F]{6}")
+
+
+class FractalCompilerService:
+    """Invokes `code_dataset/Flex-Bison-Compiler` on fractal DSL code and returns the rendered BMP image."""
+
+    def __init__(self, compiler_path: Path = COMPILER_PATH) -> None:
+        self.compiler_path = compiler_path
+
+    @staticmethod
+    def _cap_preview_resolution(code: str, max_w: int = 640, max_h: int = 360) -> str:
+        """Sets a fast real-time preview resolution and caps excessive IFS points for interactive dragging."""
+        lines = [ln for ln in code.splitlines() if not ln.strip().startswith("size:")]
+        capped_code = f"size: {max_w} {max_h}\n" + "\n".join(lines)
+        return re.sub(
+            r"(points:\s*)(\d+)",
+            lambda m: f"{m.group(1)}{min(int(m.group(2)), 60000)}",
+            capped_code,
+        )
+
+    @staticmethod
+    def _to_wsl_path(win_path: Path) -> str:
+        resolved = win_path.resolve()
+        drive = resolved.drive.rstrip(":").lower()
+        tail = resolved.as_posix().split(":", 1)[-1]
+        return f"/mnt/{drive}{tail}"
+
+    def compile_code(self, code: str, fast_preview: bool = True) -> dict[str, Any]:
+        if not code.strip():
+            return {"ok": False, "error": "Empty code buffer.", "image_b64": None}
+
+        if not self.compiler_path.exists():
+            return {
+                "ok": False,
+                "error": f"Compiler binary not found at: {self.compiler_path}",
+                "image_b64": None,
+            }
+
+        source = self._cap_preview_resolution(code) if fast_preview else code
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            out_bmp = tmp_path / "preview.bmp"
+
+            try:
+                if os.name == "nt" and not self.compiler_path.suffix.endswith(".exe"):
+                    cmd = ["wsl", self._to_wsl_path(self.compiler_path), "preview.bmp"]
+                else:
+                    cmd = [str(self.compiler_path), str(out_bmp)]
+
+                proc = subprocess.run(
+                    cmd,
+                    input=source.encode("utf-8"),
+                    cwd=str(tmp_path),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=8.0,
+                )
+            except Exception as exc:
+                return {"ok": False, "error": str(exc), "image_b64": None}
+
+            # Locate preview.bmp or any generated image in tmp_path
+            bmp_files = [out_bmp] if out_bmp.exists() else list(tmp_path.glob("*.bmp"))
+            if bmp_files and bmp_files[0].stat().st_size > 0:
+                raw_bytes = bmp_files[0].read_bytes()
+                b64 = base64.b64encode(raw_bytes).decode("ascii")
+                return {
+                    "ok": True,
+                    "error": None,
+                    "image_b64": f"data:image/bmp;base64,{b64}",
+                }
+
+            stderr_msg = proc.stderr.decode("utf-8", errors="replace").strip()
+            stdout_msg = proc.stdout.decode("utf-8", errors="replace").strip()
+            return {
+                "ok": False,
+                "error": stderr_msg or stdout_msg or f"Compiler exited with code {proc.returncode}",
+                "image_b64": None,
+            }
+
+
+def blend_fractal_codes_ast(codes: list[str], weights: list[float]) -> str:
+    """
+    Interpolates numeric parameters and hex color palettes onto the dominant
+    structural fractal template when raw ASCII character-level blending is mid-transition.
+    """
+    active = [(c, w) for c, w in zip(codes, weights) if abs(w) > 1e-6]
+    if not active:
+        return ""
+    if len(active) == 1 and abs(active[0][1] - 1.0) < 1e-4:
+        return active[0][0]
+
+    # Pick structural template of highest-weighted code
+    dominant_code, _ = max(active, key=lambda item: abs(item[1]))
+    total_w = sum(abs(w) for _, w in active) or 1.0
+    norm_weights = [w / total_w for _, w in active]
+
+    # Blend hex colors if all active codes have 2 hex colors
+    all_colors = [HEX_COLOR_REGEX.findall(c) for c, _ in active]
+    blended_code = dominant_code
+    if all(len(cols) >= 2 for cols in all_colors):
+        new_colors = []
+        for col_idx in range(2):
+            rgb = [0.0, 0.0, 0.0]
+            for (cols, w) in zip(all_colors, norm_weights):
+                h = cols[col_idx].lstrip("#")
+                for ch in range(3):
+                    rgb[ch] += max(0.0, w) * int(h[ch * 2 : ch * 2 + 2], 16)
+            clamped = [max(0, min(255, int(round(v)))) for v in rgb]
+            new_colors.append(f"#{clamped[0]:02X}{clamped[1]:02X}{clamped[2]:02X}")
+
+        color_iter = iter(new_colors)
+        blended_code = HEX_COLOR_REGEX.sub(lambda m: next(color_iter, m.group(0)), blended_code, count=2)
+
+    return blended_code
 
 
 @dataclass
-class LatentSpaceExplorer:
-    """
-    Domain service encapsulating 2D point decoding and N-directional latent
-    vector arithmetic for any injected Autoencoder/VariationalAutoencoder.
-    """
+class ExplorerSession:
+    """Holds the currently loaded Autoencoder/VAE model, dataset, and compiler service."""
 
-    model: Autoencoder
-    dataset: DatasetBundle
+    compiler: FractalCompilerService
+    model: Autoencoder | None = None
+    dataset: DatasetBundle | None = None
+    model_path: str = ""
     threshold: float = 0.5
+    latent_coords: NDArray[np.float64] | None = None
+    latent_dim: int = 2
+    input_dim: int = 35
+    is_code_mode: bool = False
+    raw_codes: list[str] | None = None
 
-    def __post_init__(self) -> None:
-        self.latent_coords: NDArray[np.float64] = self.model.encode(self.dataset.inputs)
-        self.latent_dim: int = int(self.latent_coords.shape[1])
-        self.latent_mean: NDArray[np.float64] = np.mean(self.latent_coords, axis=0)
+    def discover_models(self) -> list[str]:
+        candidates: list[Path] = []
+        for folder in ("saved_models", "optuna_outputs", "results"):
+            root = PROJECT_ROOT / folder
+            if root.exists():
+                candidates.extend(root.rglob("*.pkl"))
+        candidates.extend(PROJECT_ROOT.glob("*.pkl"))
+        seen: set[str] = set()
+        rel_paths: list[str] = []
+        for p in sorted(candidates, key=lambda x: x.stat().st_mtime, reverse=True):
+            rel = str(p.resolve().relative_to(PROJECT_ROOT)).replace("\\", "/")
+            if rel not in seen:
+                seen.add(rel)
+                rel_paths.append(rel)
+        return rel_paths
 
-    def get_initial_state(self) -> dict[str, Any]:
-        eval_res = self.model.evaluate_reconstruction(
-            self.dataset.inputs,
-            self.dataset.inputs,
-            threshold=self.threshold,
+    def load_checkpoint(self, path_str: str) -> dict[str, Any]:
+        ckpt_path = Path(path_str)
+        if not ckpt_path.is_absolute():
+            ckpt_path = (PROJECT_ROOT / ckpt_path).resolve()
+        if not ckpt_path.exists():
+            raise FileNotFoundError(f"Model file not found: {ckpt_path}")
+
+        with ckpt_path.open("rb") as f:
+            payload = pickle.load(f)
+
+        model: Autoencoder = payload["model"] if isinstance(payload, dict) and "model" in payload else payload
+        input_dim = int(model.encoder_sizes[0])
+
+        # Determine dataset path from checkpoint metadata or input dimension
+        ds_path_meta = payload.get("dataset_path") if isinstance(payload, dict) else None
+        subset_meta = payload.get("subset_size") if isinstance(payload, dict) else None
+
+        if ds_path_meta and Path(ds_path_meta).exists():
+            ds_path = Path(ds_path_meta)
+        elif input_dim == MAX_CODE_LEN:
+            ds_path = PROJECT_ROOT / "code_dataset" / "code"
+            subset_meta = subset_meta or 100
+        else:
+            ds_path = PROJECT_ROOT / "doc" / "font.h"
+
+        cfg = build_config_object(
+            {
+                "dataset_path": str(ds_path),
+                "subset_size": subset_meta,
+                "encoder_layers": list(model.encoder_sizes),
+            }
         )
+        dataset = cfg.build_dataset()
+
+        self.model = model
+        self.dataset = dataset
+        self.model_path = str(ckpt_path.relative_to(PROJECT_ROOT)).replace("\\", "/") if ckpt_path.is_relative_to(PROJECT_ROOT) else str(ckpt_path)
+        self.latent_coords = model.encode(dataset.inputs)
+        self.latent_dim = int(self.latent_coords.shape[1])
+        self.input_dim = input_dim
+        self.is_code_mode = (input_dim == MAX_CODE_LEN)
+
+        if self.is_code_mode:
+            self.raw_codes = [CodeDataset.decode_vector(row) for row in dataset.inputs]
+        else:
+            self.raw_codes = None
+
+        return self.get_state()
+
+    def get_state(self) -> dict[str, Any]:
+        available = self.discover_models()
+        if self.model is None and available:
+            try:
+                return self.load_checkpoint(available[0])
+            except Exception:
+                pass
+
+        if self.model is None or self.dataset is None or self.latent_coords is None:
+            return {
+                "loaded": False,
+                "available_models": available,
+            }
+
+        eval_res = self.model.evaluate_reconstruction(self.dataset.inputs, self.dataset.inputs, self.threshold)
         h, w = self.dataset.image_shape
         return {
+            "loaded": True,
+            "available_models": available,
+            "current_model_path": self.model_path,
             "model_name": type(self.model).__name__,
+            "is_code_mode": self.is_code_mode,
+            "input_dim": self.input_dim,
             "latent_dim": self.latent_dim,
             "image_shape": [h, w],
             "threshold": self.threshold,
             "labels": self.dataset.labels,
-            "inputs": self.dataset.inputs.reshape(-1, h, w).tolist(),
-            "reconstructions": eval_res["reconstructed_bin"].reshape(-1, h, w).tolist(),
             "pixel_errors": eval_res["pixel_errors"].tolist(),
             "latent_coords": self.latent_coords.tolist(),
+            "inputs": None if self.is_code_mode else self.dataset.inputs.reshape(-1, h, w).tolist(),
+            "codes": self.raw_codes if self.is_code_mode else None,
         }
 
-    def decode_latent_vector(
+    def decode_vector(
         self,
-        z_vector: list[float] | NDArray[np.float64],
-        threshold: float | None = None,
+        z_vec: list[float] | NDArray[np.float64],
+        threshold: float = 0.5,
+        basis_indices: list[int] | None = None,
+        basis_weights: list[float] | None = None,
+        syntax_assist: bool = True,
     ) -> dict[str, Any]:
-        """Decodes an arbitrary D-dimensional (or 2D projected) latent vector."""
-        thr = self.threshold if threshold is None else float(threshold)
-        z_arr = np.asarray(z_vector, dtype=np.float64).ravel()
+        if self.model is None or self.dataset is None or self.latent_coords is None:
+            return {"error": "No model loaded."}
 
+        z_arr = np.asarray(z_vec, dtype=np.float64).ravel()
         if len(z_arr) < self.latent_dim:
-            full_z = self.latent_mean.copy()
-            full_z[: len(z_arr)] = z_arr
-            z_arr = full_z
+            padded = np.mean(self.latent_coords, axis=0)
+            padded[: len(z_arr)] = z_arr
+            z_arr = padded
         elif len(z_arr) > self.latent_dim:
             z_arr = z_arr[: self.latent_dim]
 
         probs = self.model.decode(z_arr.reshape(1, -1))[0]
-        binary = (probs >= thr).astype(int)
-
         dists = np.linalg.norm(self.latent_coords - z_arr, axis=1)
         nearest_idx = np.argsort(dists)[:4]
         nearest = [
-            {"index": int(idx), "label": self.dataset.labels[int(idx)], "distance": float(dists[int(idx)])}
-            for idx in nearest_idx
+            {"index": int(i), "label": self.dataset.labels[int(i)], "distance": float(dists[int(i)])}
+            for i in nearest_idx
         ]
 
+        if self.is_code_mode:
+            raw_decoded_code = CodeDataset.decode_vector(probs)
+            compile_res = self.compiler.compile_code(raw_decoded_code)
+            used_syntax_fallback = False
+            compiled_code = raw_decoded_code
+
+            if not compile_res["ok"] and syntax_assist and self.raw_codes:
+                if basis_indices and basis_weights:
+                    active_codes = [self.raw_codes[idx] for idx in basis_indices]
+                    repaired = blend_fractal_codes_ast(active_codes, basis_weights)
+                else:
+                    repaired = self.raw_codes[int(nearest_idx[0])]
+                fallback_res = self.compiler.compile_code(repaired)
+                if fallback_res["ok"]:
+                    compile_res = fallback_res
+                    compiled_code = repaired
+                    used_syntax_fallback = True
+
+            return {
+                "z": z_arr.tolist(),
+                "is_code_mode": True,
+                "raw_code": raw_decoded_code,
+                "compiled_code": compiled_code,
+                "used_syntax_fallback": used_syntax_fallback,
+                "compiler": compile_res,
+                "nearest": nearest,
+            }
+
         h, w = self.dataset.image_shape
+        probs_clipped = np.clip(probs, 0.0, 1.0)
+        binary = (probs_clipped >= float(threshold)).astype(int)
         return {
             "z": z_arr.tolist(),
-            "probs": probs.reshape(h, w).tolist(),
+            "is_code_mode": False,
+            "probs": probs_clipped.reshape(h, w).tolist(),
             "binary": binary.reshape(h, w).tolist(),
             "nearest": nearest,
         }
 
-    def combine_directions(
-        self,
-        direction_vectors: list[list[float]],
-        weights: list[float],
-        threshold: float | None = None,
-    ) -> dict[str, Any]:
-        """
-        Computes the linear combination z = sum_i (weight_i * direction_i)
-        in the D-dimensional latent space and decodes the resulting image.
-        """
-        if not direction_vectors:
-            z_combined = np.zeros(self.latent_dim, dtype=np.float64)
-        else:
-            dirs = np.asarray(direction_vectors, dtype=np.float64)
-            w_arr = np.asarray(weights, dtype=np.float64).reshape(-1, 1)
-            z_combined = np.sum(dirs * w_arr, axis=0)
-
-        return self.decode_latent_vector(z_combined, threshold=threshold)
-
-    def encode_custom_pattern(self, pixels: list[float]) -> dict[str, Any]:
-        """Encodes a custom flat input image into the D-dimensional latent space."""
-        x = np.asarray(pixels, dtype=np.float64).reshape(1, -1)
-        z = self.model.encode(x)[0]
-        return {"z": z.tolist()}
-
 
 # =========================================================================
-# EMBEDDED SINGLE-PAGE INTERACTIVE UI
+# UNIFIED WEB UI (Supports Model Loading, Code+Compiler Mode & Bitmap Mode)
 # =========================================================================
 EXPLORER_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Latent Space Explorer — TP5</title>
+<title>TP5 Latent Space Explorer (Images & Fractal Code)</title>
 <style>
   :root {
-    --bg: #0f172a; --panel: #1e293b; --border: #334155;
-    --text: #f8fafc; --muted: #94a3b8; --accent: #38bdf8; --accent2: #f43f5e;
+    --bg: #0b0f19; --panel: #161f33; --border: #2e3c56;
+    --text: #f1f5f9; --muted: #94a3b8; --accent: #38bdf8; --accent2: #f43f5e; --ok: #10b981;
   }
   * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
-  body { margin: 0; background: var(--bg); color: var(--text); padding: 18px; }
-  header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid var(--border); padding-bottom: 12px; }
-  h1 { margin: 0; font-size: 1.35rem; }
-  .badge { background: #0284c7; padding: 4px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 600; }
-  .tabs { display: flex; gap: 10px; margin-bottom: 16px; }
-  .tab-btn { background: var(--panel); color: var(--text); border: 1px solid var(--border); padding: 10px 18px; border-radius: 8px; cursor: pointer; font-weight: 600; }
-  .tab-btn.active { background: var(--accent); color: #0f172a; border-color: var(--accent); }
-  .workspace { display: none; grid-template-columns: 1.25fr 1fr; gap: 18px; }
-  .workspace.active { display: grid; }
-  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
-  .card h2 { margin-top: 0; font-size: 1.05rem; color: var(--accent); }
-  canvas.scatter { width: 100%; height: 480px; background: #090d16; border-radius: 8px; cursor: crosshair; border: 1px solid var(--border); }
-  .outputs-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; text-align: center; }
-  canvas.bitmap { width: 100%; max-width: 220px; aspect-ratio: 5 / 7; image-rendering: pixelated; border: 1px solid var(--border); border-radius: 6px; background: #000; margin: 0 auto; display: block; }
-  .controls-grid { display: grid; gap: 10px; margin-top: 14px; }
-  .slider-row { display: grid; grid-template-columns: 110px 1fr 70px; align-items: center; gap: 10px; background: #0f172a; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); }
+  body { margin: 0; background: var(--bg); color: var(--text); padding: 16px; }
+  .top-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; background: var(--panel); border: 1px solid var(--border); padding: 12px 16px; border-radius: 10px; margin-bottom: 14px; }
+  .loader-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  select, input[type=text], input[type=number] { background: #090d16; color: var(--text); border: 1px solid var(--border); padding: 7px 10px; border-radius: 6px; }
+  button.btn { background: var(--accent); color: #090d16; border: none; padding: 7px 14px; border-radius: 6px; font-weight: 700; cursor: pointer; }
+  button.btn.secondary { background: #334155; color: var(--text); border: 1px solid var(--border); font-weight: 600; }
+  button.btn:hover { opacity: 0.9; }
+  .badge { background: #0284c7; padding: 4px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 700; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+  .tab-btn { background: var(--panel); color: var(--text); border: 1px solid var(--border); padding: 9px 16px; border-radius: 8px; cursor: pointer; font-weight: 600; }
+  .tab-btn.active { background: var(--accent); color: #090d16; border-color: var(--accent); }
+  .grid-2 { display: grid; grid-template-columns: 1.15fr 1fr; gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+  .card h2 { margin: 0 0 10px 0; font-size: 1rem; color: var(--accent); display: flex; justify-content: space-between; align-items: center; }
+  canvas.scatter { width: 100%; height: 420px; background: #070a12; border-radius: 8px; cursor: crosshair; border: 1px solid var(--border); }
+  .gallery-code { max-height: 210px; overflow-y: auto; background: #070a12; border: 1px solid var(--border); border-radius: 8px; padding: 6px; display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px; }
+  .code-item { padding: 6px 9px; border-radius: 6px; background: var(--panel); border: 1px solid transparent; cursor: pointer; font-size: 0.78rem; font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .code-item:hover { border-color: var(--muted); }
+  .code-item.selected { border-color: var(--accent); background: #0c4a6e; font-weight: 700; }
+  .dir-row { display: grid; grid-template-columns: 150px 1fr 72px auto; gap: 8px; align-items: center; background: #090d16; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 6px; }
   input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; }
-  input[type=number] { width: 100%; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 4px 6px; text-align: right; }
-  .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); gap: 8px; max-height: 250px; overflow-y: auto; padding: 6px; background: #090d16; border-radius: 8px; border: 1px solid var(--border); }
-  .thumb { border: 2px solid transparent; border-radius: 6px; padding: 4px; background: var(--panel); cursor: pointer; text-align: center; transition: 0.15s; }
-  .thumb:hover { border-color: var(--muted); }
-  .thumb.selected { border-color: var(--accent); background: #0c4a6e; }
-  .thumb canvas { width: 40px; height: 56px; image-rendering: pixelated; display: block; margin: 0 auto 4px; }
-  .thumb span { font-size: 0.75rem; font-weight: 700; }
-  .btn-bar { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
-  button.action { background: #334155; color: var(--text); border: 1px solid var(--border); padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.82rem; font-weight: 600; }
-  button.action:hover { background: var(--accent); color: #0f172a; }
-  .dir-card { display: grid; grid-template-columns: 46px 90px 1fr 68px auto; align-items: center; gap: 10px; background: #0f172a; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 8px; }
-  .dir-card canvas { width: 35px; height: 49px; image-rendering: pixelated; border: 1px solid var(--border); }
-  .mono { font-family: monospace; font-size: 0.82rem; color: var(--muted); word-break: break-all; }
-  .neighbors { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-  .neighbor-pill { background: #0f172a; border: 1px solid var(--border); padding: 4px 10px; border-radius: 6px; font-size: 0.8rem; }
+  .code-img-split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+  textarea.code-box { width: 100%; height: 360px; background: #070a12; color: #38bdf8; border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-family: monospace; font-size: 0.8rem; resize: vertical; }
+  .fractal-Basic-view { width: 100%; height: 360px; background: #000; border: 1px solid var(--border); border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
+  .fractal-Basic-view img { width: 100%; height: 100%; object-fit: contain; }
+  canvas.bitmap { width: 180px; aspect-ratio: 5 / 7; image-rendering: pixelated; border: 1px solid var(--border); border-radius: 6px; background: #000; margin: 0 auto; display: block; }
+  .mono { font-family: monospace; font-size: 0.8rem; color: var(--muted); }
+  .pill { display: inline-block; background: #090d16; border: 1px solid var(--border); padding: 3px 8px; border-radius: 5px; font-size: 0.76rem; margin: 2px; }
 </style>
 </head>
 <body>
 
-<header>
+<div class="top-bar">
   <div>
-    <h1>Interactive Latent Space Explorer</h1>
-    <div class="mono" id="subtitle">Loading model...</div>
+    <strong style="font-size:1.15rem;">TP5 Interactive Latent Space Explorer</strong>
+    <div class="mono" id="status-line">Select and load a trained .pkl model checkpoint</div>
   </div>
-  <span class="badge" id="model-badge">Autoencoder</span>
-</header>
+  <div class="loader-controls">
+    <select id="model-select" style="min-width:260px;"></select>
+    <button class="btn" onclick="loadSelectedDropdownModel()">Load Selected Model</button>
+    <input type="text" id="custom-model-path" placeholder="Or type path to .pkl..." style="width:200px;">
+    <button class="btn secondary" onclick="loadCustomPathModel()">Load Path</button>
+    <button class="btn secondary" onclick="refreshModelList()">↻ Refresh</button>
+    <span class="badge" id="mode-badge">No Model</span>
+  </div>
+</div>
 
 <div class="tabs">
-  <button class="tab-btn active" onclick="switchTab('tab2d', this)">
-    1. 2D Latent Space Point Explorer (Click & Drag)
+  <button class="tab-btn active" onclick="switchTab('tabNd', this)">
+    N-Directions Slider Explorer (Code / Images in D-Dim Space)
   </button>
-  <button class="tab-btn" onclick="switchTab('tabNd', this)">
-    2. N-Image Directional Explorer (N Sliders in D-Dim Space)
+  <button class="tab-btn" onclick="switchTab('tab2d', this)">
+    2D Latent Plane Click & Drag Explorer (z₁, z₂)
   </button>
 </div>
 
-<!-- ================= TAB 1: 2D POINT EXPLORER ================= -->
-<div id="tab2d" class="workspace active">
+<div class="grid-2">
+  <!-- LEFT PANEL: CONTROLS -->
   <div class="card">
-    <h2>2D Latent Space Plane (z₁, z₂) — Click or Drag Anywhere</h2>
-    <canvas id="scatter2d" class="scatter" width="700" height="480"></canvas>
-    <div class="controls-grid">
-      <div class="slider-row">
-        <label>Coord z₁:</label>
-        <input type="range" id="z1-slider" min="-5" max="5" step="0.01" value="0" oninput="on2dSliderChange()">
-        <input type="number" id="z1-num" step="0.05" value="0" onchange="on2dNumberChange()">
+    <div id="tabNd-left">
+      <h2>
+        <span>1. Click N Dataset Samples to Load as Latent Directions</span>
+        <input type="text" id="filter-input" placeholder="Filter by name..." oninput="renderGallery()" style="font-size:0.78rem; padding:4px 8px;">
+      </h2>
+      <div id="gallery" class="gallery-code"></div>
+
+      <div style="display:flex; gap:6px; flex-wrap:wrap; margin:10px 0;">
+        <button class="btn secondary" onclick="applyPreset('midpoint')">Midpoint (1/N ... 1/N)</button>
+        <button class="btn secondary" onclick="applyPreset('sum')">Sum (1, 1 ... 1)</button>
+        <button class="btn secondary" onclick="applyPreset('zero')">Zero (0 ... 0)</button>
+        <button class="btn secondary" onclick="clearDirections()">Clear All</button>
       </div>
-      <div class="slider-row">
-        <label>Coord z₂:</label>
-        <input type="range" id="z2-slider" min="-5" max="5" step="0.01" value="0" oninput="on2dSliderChange()">
-        <input type="number" id="z2-num" step="0.05" value="0" onchange="on2dNumberChange()">
-      </div>
-      <div class="slider-row">
-        <label>Threshold:</label>
-        <input type="range" id="thr-slider" min="0.05" max="0.95" step="0.01" value="0.5" oninput="onThresholdChange(this.value)">
-        <input type="number" id="thr-num" step="0.05" value="0.5" readonly>
+
+      <h2>2. Move Along Loaded Directions: z = Σ αᵢ · encode(Sampleᵢ)</h2>
+      <div id="sliders-list"></div>
+    </div>
+
+    <div id="tab2d-left" style="display:none;">
+      <h2>Click or Drag in the 2D Latent Plane (z₁, z₂)</h2>
+      <canvas id="scatter2d" class="scatter" width="680" height="420"></canvas>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;">
+        <div>
+          <label class="mono">z₁:</label>
+          <input type="number" id="z1-input" step="0.05" value="0" onchange="onManual2D()">
+        </div>
+        <div>
+          <label class="mono">z₂:</label>
+          <input type="number" id="z2-input" step="0.05" value="0" onchange="onManual2D()">
+        </div>
       </div>
     </div>
+
+    <hr style="border-color:var(--border); margin:12px 0;">
+    <h2>2D Projection of Latent Space & Current Vector z</h2>
+    <canvas id="scatterMini" class="scatter" width="680" height="210" style="height:200px; cursor:crosshair;"></canvas>
   </div>
 
+  <!-- RIGHT PANEL: REAL-TIME DECODED CODE + COMPILER IMAGE OR BITMAP -->
   <div class="card">
-    <h2>Decoded Output at Selected Point</h2>
-    <div class="outputs-row">
-      <div>
-        <canvas id="out2d-prob" class="bitmap"></canvas>
-        <p class="mono">Continuous Probability P(x=1)</p>
-      </div>
-      <div>
-        <canvas id="out2d-bin" class="bitmap"></canvas>
-        <p class="mono">Binarized Pattern (≥ Threshold)</p>
-      </div>
-    </div>
-    <hr style="border-color: var(--border); margin: 16px 0;">
-    <div>
-      <div class="mono">Active Latent Vector z: <span id="z2d-readout"></span></div>
-      <h3 style="font-size:0.9rem; margin:12px 0 6px;">Nearest Training Patterns in Latent Space:</h3>
-      <div id="neighbors2d" class="neighbors"></div>
-    </div>
-  </div>
-</div>
+    <h2>
+      <span id="output-title">Real-Time Decoded Output</span>
+      <label id="syntax-toggle-wrap" class="mono" style="font-weight:normal;">
+        <input type="checkbox" id="syntax-assist" checked onchange="triggerDecode()">
+        Compiler Syntax Assist on Mid-Interpolation
+      </label>
+    </h2>
 
-<!-- ================= TAB 2: N-IMAGE DIRECTIONAL EXPLORER ================= -->
-<div id="tabNd" class="workspace">
-  <div class="card">
-    <h2>Select N Images as Latent Space Directions (Click to Add/Remove)</h2>
-    <div id="gallery" class="gallery"></div>
-
-    <div class="btn-bar">
-      <button class="action" onclick="setPreset('midpoint')">Midpoint (1/N ... 1/N)</button>
-      <button class="action" onclick="setPreset('sum')">Sum All (1, 1 ... 1)</button>
-      <button class="action" onclick="setPreset('zero')">Reset Sliders (0 ... 0)</button>
-      <button class="action" onclick="clearDirections()">Clear Loaded Images</button>
-    </div>
-
-    <h2>Active Direction Sliders: z = Σ αᵢ · encode(Imageᵢ)</h2>
-    <div id="sliders-container"></div>
-  </div>
-
-  <div class="card">
-    <h2>Generated Image from Linear Combination</h2>
-    <div class="outputs-row">
-      <div>
-        <canvas id="outNd-prob" class="bitmap"></canvas>
-        <p class="mono">Continuous Probability P(x=1)</p>
-      </div>
-      <div>
-        <canvas id="outNd-bin" class="bitmap"></canvas>
-        <p class="mono">Binarized Pattern (≥ Threshold)</p>
+    <!-- CODE + COMPILER VIEW (Ej2) -->
+    <div id="code-output-panel" style="display:none;">
+      <div class="code-img-split">
+        <div>
+          <div class="mono" style="margin-bottom:4px; display:flex; justify-content:space-between;">
+            <span>Decoded Code (<= 1000 chars):</span>
+            <button class="btn secondary" style="padding:2px 8px; font-size:0.72rem;" onclick="compileEditedCode()">Recompile Edited Text</button>
+          </div>
+          <textarea id="decoded-code-text" class="code-box" spellcheck="false"></textarea>
+        </div>
+        <div>
+          <div class="mono" style="margin-bottom:4px;">Real-Time Compiler Output (.bmp):</div>
+          <div class="fractal-Basic-view">
+            <img id="compiler-img" alt="Compiled Fractal Preview" style="display:none;">
+            <div id="compiler-status" class="mono" style="padding:14px; text-align:center;">Waiting for decode...</div>
+          </div>
+        </div>
       </div>
     </div>
-    <hr style="border-color: var(--border); margin: 14px 0;">
-    <div class="mono" style="margin-bottom:8px;">Combined Latent Vector z: <span id="zNd-readout"></span></div>
-    <h3 style="font-size:0.9rem; margin:8px 0 6px;">Nearest Training Patterns:</h3>
-    <div id="neighborsNd" class="neighbors"></div>
-    <h3 style="font-size:0.9rem; margin:14px 0 6px;">2D Projection of Basis Directions & Resultant Vector z:</h3>
-    <canvas id="scatterNd" class="scatter" width="600" height="270" style="height:250px; cursor:default;"></canvas>
+
+    <!-- BITMAP VIEW (Ej1) -->
+    <div id="bitmap-output-panel" style="display:none;">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; text-align:center; padding:20px 0;">
+        <div>
+          <canvas id="bmp-prob" class="bitmap"></canvas>
+          <p class="mono">Continuous Probability P(x=1)</p>
+        </div>
+        <div>
+          <canvas id="bmp-bin" class="bitmap"></canvas>
+          <p class="mono">Binarized Reconstruction</p>
+        </div>
+      </div>
+    </div>
+
+    <hr style="border-color:var(--border); margin:12px 0;">
+    <div class="mono">Latent Vector z: <span id="z-readout">[]</span></div>
+    <div style="margin-top:8px;">
+      <span class="mono">Nearest Dataset Samples:</span>
+      <div id="nearest-list" style="margin-top:4px;"></div>
+    </div>
   </div>
 </div>
 
 <script>
 let STATE = null;
+let activeTab = 'tabNd';
+let selectedDirs = []; // [{index, label, z, weight}]
 let probe2D = [0, 0];
-let isDragging2D = false;
-let selectedDirections = []; // [{index, label, z, pixels, weight}]
 let bounds = {minX: -3, maxX: 3, minY: -3, maxY: 3};
+let decodeTimer = null;
 
-async function init() {
+async function refreshModelList() {
   const res = await fetch('/api/state');
   STATE = await res.json();
-
-  document.getElementById('model-badge').textContent = `${STATE.model_name} (Latent Dim = ${STATE.latent_dim}D)`;
-  document.getElementById('subtitle').textContent =
-    `Dataset: ${STATE.labels.length} patterns (${STATE.image_shape[0]}x${STATE.image_shape[1]}) | Latent space: R^${STATE.latent_dim}`;
-
-  computeBounds();
-  setup2DCanvas();
-  buildGallery();
-
-  // Default: load first 2 characters (e.g. 'a' and 'b') with 0.5, 0.5 weights
-  if (STATE.labels.length >= 3) {
-    toggleDirection(1, 0.5);
-    toggleDirection(2, 0.5);
-  } else if (STATE.labels.length >= 2) {
-    toggleDirection(0, 0.5);
-    toggleDirection(1, 0.5);
-  }
-
-  probe2D = [STATE.latent_coords[0][0], STATE.latent_coords[0][1] || 0];
-  sync2DInputs();
-  update2DDecode();
+  populateModelDropdown();
+  if (STATE.loaded) setupLoadedState();
 }
 
-function switchTab(tabId, btn) {
-  document.querySelectorAll('.workspace').forEach(el => el.classList.remove('active'));
-  document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-  document.getElementById(tabId).classList.add('active');
-  btn.classList.add('active');
-  if (tabId === 'tab2d') drawScatter2D();
-  else drawScatterNd();
+function populateModelDropdown() {
+  const sel = document.getElementById('model-select');
+  sel.innerHTML = '';
+  (STATE.available_models || []).forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p;
+    opt.textContent = p;
+    if (p === STATE.current_model_path) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+async function loadSelectedDropdownModel() {
+  const path = document.getElementById('model-select').value;
+  if (path) await loadModelByPath(path);
+}
+
+async function loadCustomPathModel() {
+  const path = document.getElementById('custom-model-path').value.trim();
+  if (path) await loadModelByPath(path);
+}
+
+async function loadModelByPath(path) {
+  document.getElementById('status-line').textContent = `Loading ${path}...`;
+  const res = await fetch('/api/load_model', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({path})
+  });
+  const data = await res.json();
+  if (data.error) {
+    alert(data.error);
+    return;
+  }
+  STATE = data;
+  populateModelDropdown();
+  setupLoadedState();
+}
+
+function setupLoadedState() {
+  document.getElementById('status-line').textContent =
+    `Loaded: ${STATE.current_model_path} | Samples: ${STATE.labels.length} | Input: ${STATE.input_dim}D → Latent: ${STATE.latent_dim}D`;
+  document.getElementById('mode-badge').textContent =
+    STATE.is_code_mode ? `CODE + COMPILER (${STATE.latent_dim}D)` : `BITMAP (${STATE.latent_dim}D)`;
+
+  document.getElementById('code-output-panel').style.display = STATE.is_code_mode ? 'block' : 'none';
+  document.getElementById('bitmap-output-panel').style.display = STATE.is_code_mode ? 'none' : 'block';
+  document.getElementById('syntax-toggle-wrap').style.display = STATE.is_code_mode ? 'inline-block' : 'none';
+
+  computeBounds();
+  selectedDirs = [];
+  renderGallery();
+
+  if (STATE.labels.length >= 2) {
+    toggleDirection(0, 1.0);
+    toggleDirection(1, 0.0);
+  }
 }
 
 function computeBounds() {
-  const xs = STATE.latent_coords.map(c => c[0]);
+  const xs = STATE.latent_coords.map(c => c[0] ?? 0);
   const ys = STATE.latent_coords.map(c => c[1] ?? 0);
-  const padX = Math.max(0.5, (Math.max(...xs) - Math.min(...xs)) * 0.2);
-  const padY = Math.max(0.5, (Math.max(...ys) - Math.min(...ys)) * 0.2);
-  bounds.minX = Math.min(...xs) - padX;
-  bounds.maxX = Math.max(...xs) + padX;
-  bounds.minY = Math.min(...ys) - padY;
-  bounds.maxY = Math.max(...ys) + padY;
-
-  const s1 = document.getElementById('z1-slider');
-  const s2 = document.getElementById('z2-slider');
-  s1.min = bounds.minX.toFixed(2); s1.max = bounds.maxX.toFixed(2);
-  s2.min = bounds.minY.toFixed(2); s2.max = bounds.maxY.toFixed(2);
-}
-
-function worldToCanvas(x, y, canvas) {
-  const pad = 36;
-  const w = canvas.width - 2 * pad;
-  const h = canvas.height - 2 * pad;
-  const cx = pad + ((x - bounds.minX) / (bounds.maxX - bounds.minX || 1)) * w;
-  const cy = canvas.height - pad - ((y - bounds.minY) / (bounds.maxY - bounds.minY || 1)) * h;
-  return [cx, cy];
-}
-
-function canvasToWorld(cx, cy, canvas) {
-  const pad = 36;
-  const w = canvas.width - 2 * pad;
-  const h = canvas.height - 2 * pad;
-  const x = bounds.minX + ((cx - pad) / w) * (bounds.maxX - bounds.minX);
-  const y = bounds.minY + ((canvas.height - pad - cy) / h) * (bounds.maxY - bounds.minY);
-  return [x, y];
-}
-
-function drawBitmap(canvasId, grid, isProb = false) {
-  const canvas = document.getElementById(canvasId);
-  const rows = grid.length;
-  const cols = grid[0].length;
-  canvas.width = cols;
-  canvas.height = rows;
-  const ctx = canvas.getContext('2d');
-  const imgData = ctx.createImageData(cols, rows);
-
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const v = Math.max(0, Math.min(1, grid[r][c]));
-      const idx = (r * cols + c) * 4;
-      if (isProb) {
-        imgData.data[idx]     = Math.round(15 + v * 41);
-        imgData.data[idx + 1] = Math.round(23 + v * 166);
-        imgData.data[idx + 2] = Math.round(42 + v * 206);
-        imgData.data[idx + 3] = 255;
-      } else {
-        const bw = v >= 0.5 ? 248 : 15;
-        imgData.data[idx] = bw;
-        imgData.data[idx + 1] = bw;
-        imgData.data[idx + 2] = bw;
-        imgData.data[idx + 3] = 255;
-      }
-    }
-  }
-  ctx.putImageData(imgData, 0, 0);
-}
-
-// ================= TAB 1 LOGIC (2D EXPLORER) =================
-function setup2DCanvas() {
-  const canvas = document.getElementById('scatter2d');
-  const pickPoint = (evt) => {
-    const rect = canvas.getBoundingClientRect();
-    const cx = (evt.clientX - rect.left) * (canvas.width / rect.width);
-    const cy = (evt.clientY - rect.top) * (canvas.height / rect.height);
-    probe2D = canvasToWorld(cx, cy, canvas);
-    sync2DInputs();
-    update2DDecode();
+  const px = Math.max(0.5, (Math.max(...xs) - Math.min(...xs)) * 0.15);
+  const py = Math.max(0.5, (Math.max(...ys) - Math.min(...ys)) * 0.15);
+  bounds = {
+    minX: Math.min(...xs) - px, maxX: Math.max(...xs) + px,
+    minY: Math.min(...ys) - py, maxY: Math.max(...ys) + py
   };
-  canvas.addEventListener('mousedown', (e) => { isDragging2D = true; pickPoint(e); });
-  window.addEventListener('mousemove', (e) => { if (isDragging2D) pickPoint(e); });
-  window.addEventListener('mouseup', () => { isDragging2D = false; });
 }
 
-function sync2DInputs() {
-  document.getElementById('z1-slider').value = probe2D[0];
-  document.getElementById('z2-slider').value = probe2D[1];
-  document.getElementById('z1-num').value = probe2D[0].toFixed(3);
-  document.getElementById('z2-num').value = probe2D[1].toFixed(3);
+function switchTab(tab, btn) {
+  activeTab = tab;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tabNd-left').style.display = (tab === 'tabNd') ? 'block' : 'none';
+  document.getElementById('tab2d-left').style.display = (tab === 'tab2d') ? 'block' : 'none';
+  triggerDecode();
 }
 
-function on2dSliderChange() {
-  probe2D[0] = parseFloat(document.getElementById('z1-slider').value);
-  probe2D[1] = parseFloat(document.getElementById('z2-slider').value);
-  document.getElementById('z1-num').value = probe2D[0].toFixed(3);
-  document.getElementById('z2-num').value = probe2D[1].toFixed(3);
-  update2DDecode();
-}
-
-function on2dNumberChange() {
-  probe2D[0] = parseFloat(document.getElementById('z1-num').value) || 0;
-  probe2D[1] = parseFloat(document.getElementById('z2-num').value) || 0;
-  document.getElementById('z1-slider').value = probe2D[0];
-  document.getElementById('z2-slider').value = probe2D[1];
-  update2DDecode();
-}
-
-function onThresholdChange(val) {
-  STATE.threshold = parseFloat(val);
-  document.getElementById('thr-num').value = STATE.threshold.toFixed(2);
-  update2DDecode();
-  updateNdDecode();
-}
-
-async function update2DDecode() {
-  drawScatter2D();
-  const res = await fetch('/api/decode_point', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({z: probe2D, threshold: STATE.threshold})
-  });
-  const data = await res.json();
-  drawBitmap('out2d-prob', data.probs, true);
-  drawBitmap('out2d-bin', data.binary, false);
-  document.getElementById('z2d-readout').textContent = `[${data.z.map(v => v.toFixed(3)).join(', ')}]`;
-  document.getElementById('neighbors2d').innerHTML = data.nearest.map(
-    n => `<span class="neighbor-pill"><b>${n.label}</b> (d=${n.distance.toFixed(2)})</span>`
-  ).join('');
-}
-
-function drawScatter2D() {
-  const canvas = document.getElementById('scatter2d');
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  // Origin axes
-  const [ox, oy] = worldToCanvas(0, 0, canvas);
-  ctx.strokeStyle = '#1e293b';
-  ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(0, oy); ctx.lineTo(canvas.width, oy); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(ox, 0); ctx.lineTo(ox, canvas.height); ctx.stroke();
-
-  // Dataset points
-  STATE.latent_coords.forEach((coord, i) => {
-    const [cx, cy] = worldToCanvas(coord[0], coord[1] ?? 0, canvas);
-    ctx.fillStyle = STATE.pixel_errors[i] <= 1 ? '#38bdf8' : '#f59e0b';
-    ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#e2e8f0';
-    ctx.font = 'bold 12px sans-serif';
-    ctx.fillText(STATE.labels[i], cx + 7, cy - 5);
-  });
-
-  // Active probe cursor
-  const [px, py] = worldToCanvas(probe2D[0], probe2D[1], canvas);
-  ctx.strokeStyle = '#f43f5e';
-  ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.arc(px, py, 9, 0, Math.PI * 2); ctx.stroke();
-  ctx.fillStyle = '#f43f5e';
-  ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI * 2); ctx.fill();
-}
-
-// ================= TAB 2 LOGIC (N-DIRECTIONAL EXPLORER) =================
-function buildGallery() {
+function renderGallery() {
+  if (!STATE || !STATE.loaded) return;
+  const q = (document.getElementById('filter-input').value || '').toLowerCase();
   const gal = document.getElementById('gallery');
   gal.innerHTML = '';
-  STATE.inputs.forEach((grid, idx) => {
-    const div = document.createElement('div');
-    div.className = 'thumb';
-    div.id = `thumb-${idx}`;
-    div.onclick = () => toggleDirection(idx);
-
-    const c = document.createElement('canvas');
-    c.id = `thumb-canvas-${idx}`;
-    const lbl = document.createElement('span');
-    lbl.textContent = STATE.labels[idx];
-
-    div.appendChild(c);
-    div.appendChild(lbl);
-    gal.appendChild(div);
-    drawBitmap(c.id, grid, false);
+  STATE.labels.forEach((lbl, idx) => {
+    if (q && !lbl.toLowerCase().includes(q)) return;
+    const item = document.createElement('div');
+    const isSel = selectedDirs.some(d => d.index === idx);
+    item.className = 'code-item' + (isSel ? ' selected' : '');
+    item.textContent = `${idx + 1}. ${lbl}`;
+    item.title = lbl;
+    item.onclick = () => toggleDirection(idx);
+    gal.appendChild(item);
   });
 }
 
-function toggleDirection(idx, initialWeight = null) {
-  const existingIdx = selectedDirections.findIndex(d => d.index === idx);
-  if (existingIdx >= 0) {
-    selectedDirections.splice(existingIdx, 1);
-    document.getElementById(`thumb-${idx}`).classList.remove('selected');
+function toggleDirection(idx, defaultWeight = null) {
+  const pos = selectedDirs.findIndex(d => d.index === idx);
+  if (pos >= 0) {
+    selectedDirs.splice(pos, 1);
   } else {
-    const defaultW = initialWeight !== null ? initialWeight : (selectedDirections.length === 0 ? 1.0 : 0.5);
-    selectedDirections.push({
+    const w = defaultWeight !== null ? defaultWeight : (selectedDirs.length === 0 ? 1.0 : 0.5);
+    selectedDirs.push({
       index: idx,
       label: STATE.labels[idx],
       z: STATE.latent_coords[idx],
-      grid: STATE.inputs[idx],
-      weight: defaultW
+      weight: w
     });
-    document.getElementById(`thumb-${idx}`).classList.add('selected');
   }
-  renderDirectionSliders();
-  updateNdDecode();
+  renderGallery();
+  renderSliders();
+  triggerDecode();
 }
 
-function renderDirectionSliders() {
-  const container = document.getElementById('sliders-container');
-  if (selectedDirections.length === 0) {
-    container.innerHTML = '<p class="mono">Click one or more images above to add them as latent space directions.</p>';
+function renderSliders() {
+  const list = document.getElementById('sliders-list');
+  if (selectedDirs.length === 0) {
+    list.innerHTML = '<div class="mono">Click any code/pattern above to add its latent vector direction.</div>';
     return;
   }
-  container.innerHTML = '';
-  selectedDirections.forEach((dir, i) => {
+  list.innerHTML = '';
+  selectedDirs.forEach((d, i) => {
     const row = document.createElement('div');
-    row.className = 'dir-card';
+    row.className = 'dir-row';
     row.innerHTML = `
-      <canvas id="dir-canvas-${i}"></canvas>
-      <div>
-        <b>Dir #${i + 1}: '${dir.label}'</b>
-        <div class="mono">α_${i + 1}</div>
+      <div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${d.label}">
+        <b>${d.label}</b>
       </div>
-      <input type="range" min="-1.0" max="2.0" step="0.01" value="${dir.weight}"
-             oninput="updateWeight(${i}, this.value, true)">
-      <input type="number" step="0.05" value="${dir.weight.toFixed(2)}"
-             onchange="updateWeight(${i}, this.value, false)">
+      <input type="range" min="-0.5" max="1.5" step="0.01" value="${d.weight}"
+             oninput="onSliderInput(${i}, this.value)">
+      <input type="number" step="0.05" value="${d.weight.toFixed(2)}"
+             onchange="onSliderNumber(${i}, this.value)">
       <div style="display:flex; gap:4px;">
-        <button class="action" title="Solo this image (1, others 0)" onclick="soloDirection(${i})">Solo (1,0)</button>
-        <button class="action" title="Remove" onclick="toggleDirection(${dir.index})">✕</button>
+        <button class="btn secondary" style="padding:4px 8px; font-size:0.74rem;" onclick="soloDir(${i})">1,0</button>
+        <button class="btn secondary" style="padding:4px 8px; font-size:0.74rem;" onclick="toggleDirection(${d.index})">✕</button>
       </div>
     `;
-    container.appendChild(row);
-    drawBitmap(`dir-canvas-${i}`, dir.grid, false);
+    list.appendChild(row);
   });
 }
 
-function updateWeight(i, val, fromSlider) {
-  selectedDirections[i].weight = parseFloat(val) || 0;
-  renderDirectionSliders();
-  updateNdDecode();
+function onSliderInput(i, val) {
+  selectedDirs[i].weight = parseFloat(val) || 0;
+  const numInputs = document.querySelectorAll('#sliders-list input[type=number]');
+  if (numInputs[i]) numInputs[i].value = selectedDirs[i].weight.toFixed(2);
+  scheduleDecode();
 }
 
-function soloDirection(targetIdx) {
-  selectedDirections.forEach((d, i) => { d.weight = (i === targetIdx) ? 1.0 : 0.0; });
-  renderDirectionSliders();
-  updateNdDecode();
+function onSliderNumber(i, val) {
+  selectedDirs[i].weight = parseFloat(val) || 0;
+  renderSliders();
+  triggerDecode();
 }
 
-function setPreset(mode) {
-  const n = selectedDirections.length;
-  if (n === 0) return;
-  selectedDirections.forEach(d => {
+function soloDir(target) {
+  selectedDirs.forEach((d, i) => { d.weight = (i === target) ? 1.0 : 0.0; });
+  renderSliders();
+  triggerDecode();
+}
+
+function applyPreset(mode) {
+  const n = selectedDirs.length;
+  if (!n) return;
+  selectedDirs.forEach(d => {
     if (mode === 'midpoint') d.weight = +(1.0 / n).toFixed(4);
     else if (mode === 'sum') d.weight = 1.0;
-    else if (mode === 'zero') d.weight = 0.0;
+    else d.weight = 0.0;
   });
-  renderDirectionSliders();
-  updateNdDecode();
+  renderSliders();
+  triggerDecode();
 }
 
 function clearDirections() {
-  selectedDirections = [];
-  document.querySelectorAll('.thumb').forEach(el => el.classList.remove('selected'));
-  renderDirectionSliders();
-  updateNdDecode();
+  selectedDirs = [];
+  renderGallery();
+  renderSliders();
+  triggerDecode();
 }
 
-async function updateNdDecode() {
-  const res = await fetch('/api/combine_directions', {
+function computeCurrentLatentZ() {
+  if (!STATE || !STATE.loaded) return [0, 0];
+  if (activeTab === 'tab2d') return probe2D;
+  const dim = STATE.latent_dim;
+  const z = new Array(dim).fill(0.0);
+  selectedDirs.forEach(d => {
+    for (let k = 0; k < dim; k++) z[k] += d.weight * d.z[k];
+  });
+  return z;
+}
+
+function scheduleDecode() {
+  if (decodeTimer) clearTimeout(decodeTimer);
+  decodeTimer = setTimeout(triggerDecode, 90);
+}
+
+async function triggerDecode() {
+  if (!STATE || !STATE.loaded) return;
+  const z = computeCurrentLatentZ();
+  drawScatter('scatterMini', z);
+  if (activeTab === 'tab2d') drawScatter('scatter2d', z);
+
+  const res = await fetch('/api/decode', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
-      directions: selectedDirections.map(d => d.z),
-      weights: selectedDirections.map(d => d.weight),
-      threshold: STATE.threshold
+      z,
+      basis_indices: activeTab === 'tabNd' ? selectedDirs.map(d => d.index) : [],
+      basis_weights: activeTab === 'tabNd' ? selectedDirs.map(d => d.weight) : [],
+      syntax_assist: document.getElementById('syntax-assist').checked
     })
   });
   const data = await res.json();
-  drawBitmap('outNd-prob', data.probs, true);
-  drawBitmap('outNd-bin', data.binary, false);
-  document.getElementById('zNd-readout').textContent = `[${data.z.map(v => v.toFixed(3)).join(', ')}]`;
-  document.getElementById('neighborsNd').innerHTML = data.nearest.map(
-    n => `<span class="neighbor-pill"><b>${n.label}</b> (d=${n.distance.toFixed(2)})</span>`
-  ).join('');
-  drawScatterNd(data.z);
+  renderDecodedOutput(data);
 }
 
-function drawScatterNd(combinedZ = [0, 0]) {
-  const canvas = document.getElementById('scatterNd');
+function renderDecodedOutput(data) {
+  if (data.error) return;
+  document.getElementById('z-readout').textContent =
+    `[${data.z.slice(0, 8).map(v => v.toFixed(3)).join(', ')}${data.z.length > 8 ? ', ...' : ''}]`;
+
+  document.getElementById('nearest-list').innerHTML = (data.nearest || []).map(
+    n => `<span class="pill"><b>${n.label}</b> (d=${n.distance.toFixed(2)})</span>`
+  ).join('');
+
+  if (data.is_code_mode) {
+    document.getElementById('decoded-code-text').value = data.compiled_code || data.raw_code || '';
+    const img = document.getElementById('compiler-img');
+    const st = document.getElementById('compiler-status');
+    if (data.compiler && data.compiler.ok && data.compiler.image_b64) {
+      img.src = data.compiler.image_b64;
+      img.style.display = 'block';
+      st.style.display = 'none';
+    } else {
+      img.style.display = 'none';
+      st.style.display = 'block';
+      st.textContent = (data.compiler && data.compiler.error) ? data.compiler.error : 'Compile error';
+    }
+  } else {
+    drawBitmap('bmp-prob', data.probs, true);
+    drawBitmap('bmp-bin', data.binary, false);
+  }
+}
+
+async function compileEditedCode() {
+  const code = document.getElementById('decoded-code-text').value;
+  const res = await fetch('/api/compile_raw', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({code})
+  });
+  const comp = await res.json();
+  const img = document.getElementById('compiler-img');
+  const st = document.getElementById('compiler-status');
+  if (comp.ok && comp.image_b64) {
+    img.src = comp.image_b64;
+    img.style.display = 'block';
+    st.style.display = 'none';
+  } else {
+    img.style.display = 'none';
+    st.style.display = 'block';
+    st.textContent = comp.error || 'Compilation failed';
+  }
+}
+
+function drawBitmap(canvasId, grid, isProb) {
+  const c = document.getElementById(canvasId);
+  const rows = grid.length, cols = grid[0].length;
+  c.width = cols; c.height = rows;
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(cols, rows);
+  for (let r = 0; r < rows; r++) {
+    for (let col = 0; col < cols; col++) {
+      const v = Math.max(0, Math.min(1, grid[r][col]));
+      const i = (r * cols + col) * 4;
+      const bw = isProb ? Math.round(v * 255) : (v >= 0.5 ? 245 : 15);
+      img.data[i] = isProb ? Math.round(20 + v * 36) : bw;
+      img.data[i + 1] = isProb ? Math.round(30 + v * 160) : bw;
+      img.data[i + 2] = isProb ? Math.round(50 + v * 200) : bw;
+      img.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+function worldToCanvas(x, y, canvas) {
+  const pad = 24;
+  const w = canvas.width - 2 * pad, h = canvas.height - 2 * pad;
+  return [
+    pad + ((x - bounds.minX) / (bounds.maxX - bounds.minX || 1)) * w,
+    canvas.height - pad - ((y - bounds.minY) / (bounds.maxY - bounds.minY || 1)) * h
+  ];
+}
+
+function canvasToWorld(cx, cy, canvas) {
+  const pad = 24;
+  const w = canvas.width - 2 * pad, h = canvas.height - 2 * pad;
+  return [
+    bounds.minX + ((cx - pad) / w) * (bounds.maxX - bounds.minX),
+    bounds.minY + ((canvas.height - pad - cy) / h) * (bounds.maxY - bounds.minY)
+  ];
+}
+
+function drawScatter(canvasId, currentZ) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || !STATE || !STATE.loaded) return;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -590,59 +814,80 @@ function drawScatterNd(combinedZ = [0, 0]) {
   ctx.beginPath(); ctx.moveTo(0, oy); ctx.lineTo(canvas.width, oy); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(ox, 0); ctx.lineTo(ox, canvas.height); ctx.stroke();
 
-  // Faint dataset background points
-  STATE.latent_coords.forEach((coord, i) => {
-    const [cx, cy] = worldToCanvas(coord[0], coord[1] ?? 0, canvas);
+  STATE.latent_coords.forEach((pt, idx) => {
+    const [cx, cy] = worldToCanvas(pt[0] ?? 0, pt[1] ?? 0, canvas);
     ctx.fillStyle = '#475569';
-    ctx.beginPath(); ctx.arc(cx, cy, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx, cy, 3.5, 0, Math.PI * 2); ctx.fill();
   });
 
-  // Basis vectors from origin
-  selectedDirections.forEach((dir) => {
-    const [dx, dy] = worldToCanvas(dir.z[0], dir.z[1] ?? 0, canvas);
+  selectedDirs.forEach(d => {
+    const [dx, dy] = worldToCanvas(d.z[0] ?? 0, d.z[1] ?? 0, canvas);
     ctx.strokeStyle = '#38bdf8';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(dx, dy); ctx.stroke();
     ctx.fillStyle = '#38bdf8';
-    ctx.beginPath(); ctx.arc(dx, dy, 6, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#f8fafc';
-    ctx.font = 'bold 12px sans-serif';
-    ctx.fillText(`${dir.label} (α=${dir.weight.toFixed(2)})`, dx + 8, dy - 6);
+    ctx.beginPath(); ctx.arc(dx, dy, 5, 0, Math.PI * 2); ctx.fill();
   });
 
-  // Combined resultant vector
-  const [rx, ry] = worldToCanvas(combinedZ[0] ?? 0, combinedZ[1] ?? 0, canvas);
-  ctx.strokeStyle = '#f43f5e';
-  ctx.setLineDash([4, 4]);
-  ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(rx, ry); ctx.stroke();
-  ctx.setLineDash([]);
+  const [px, py] = worldToCanvas(currentZ[0] ?? 0, currentZ[1] ?? 0, canvas);
   ctx.fillStyle = '#f43f5e';
-  ctx.beginPath(); ctx.arc(rx, ry, 7, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(px, py, 6, 0, Math.PI * 2); ctx.fill();
 }
 
-init();
+function bindCanvasDrag(canvasId) {
+  const c = document.getElementById(canvasId);
+  let dragging = false;
+  const pick = (e) => {
+    if (!STATE || !STATE.loaded) return;
+    const r = c.getBoundingClientRect();
+    const cx = (e.clientX - r.left) * (c.width / r.width);
+    const cy = (e.clientY - r.top) * (c.height / r.height);
+    probe2D = canvasToWorld(cx, cy, c);
+    document.getElementById('z1-input').value = probe2D[0].toFixed(3);
+    document.getElementById('z2-input').value = probe2D[1].toFixed(3);
+    if (activeTab !== 'tab2d') {
+      activeTab = 'tab2d';
+      document.querySelectorAll('.tab-btn')[1].click();
+    } else {
+      scheduleDecode();
+    }
+  };
+  c.addEventListener('mousedown', e => { dragging = true; pick(e); });
+  window.addEventListener('mousemove', e => { if (dragging) pick(e); });
+  window.addEventListener('mouseup', () => { dragging = false; });
+}
+
+function onManual2D() {
+  probe2D[0] = parseFloat(document.getElementById('z1-input').value) || 0;
+  probe2D[1] = parseFloat(document.getElementById('z2-input').value) || 0;
+  triggerDecode();
+}
+
+bindCanvasDrag('scatter2d');
+bindCanvasDrag('scatterMini');
+refreshModelList();
 </script>
 </body>
 </html>
 """
 
 
-def _make_handler(explorer: LatentSpaceExplorer) -> type[BaseHTTPRequestHandler]:
-    class ExplorerRequestHandler(BaseHTTPRequestHandler):
+def _make_handler(session: ExplorerSession) -> type[BaseHTTPRequestHandler]:
+    class Handler(BaseHTTPRequestHandler):
         def log_message(self, format: str, *args: Any) -> None:
-            pass  # Keep terminal output clean during real-time slider dragging
+            pass
 
-        def _send_json(self, payload: dict[str, Any]) -> None:
-            body = json.dumps(payload).encode("utf-8")
+        def _send_json(self, data: dict[str, Any]) -> None:
+            raw = json.dumps(data).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Content-Length", str(len(raw)))
             self.end_headers()
-            self.wfile.write(body)
+            self.wfile.write(raw)
 
         def do_GET(self) -> None:
             if self.path == "/api/state":
-                self._send_json(explorer.get_initial_state())
+                self._send_json(session.get_state())
             else:
                 body = EXPLORER_HTML.encode("utf-8")
                 self.send_response(200)
@@ -655,74 +900,41 @@ def _make_handler(explorer: LatentSpaceExplorer) -> type[BaseHTTPRequestHandler]
             length = int(self.headers.get("Content-Length", "0"))
             payload = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
 
-            if self.path == "/api/decode_point":
-                res = explorer.decode_latent_vector(payload.get("z", [0.0, 0.0]), payload.get("threshold"))
-                self._send_json(res)
-            elif self.path == "/api/combine_directions":
-                res = explorer.combine_directions(
-                    payload.get("directions", []),
-                    payload.get("weights", []),
-                    payload.get("threshold"),
-                )
-                self._send_json(res)
-            elif self.path == "/api/encode_custom":
-                res = explorer.encode_custom_pattern(payload.get("pixels", []))
-                self._send_json(res)
-            else:
-                self.send_error(404)
+            try:
+                if self.path == "/api/load_model":
+                    self._send_json(session.load_checkpoint(payload.get("path", "")))
+                elif self.path == "/api/decode":
+                    self._send_json(
+                        session.decode_vector(
+                            z_vec=payload.get("z", [0.0, 0.0]),
+                            basis_indices=payload.get("basis_indices"),
+                            basis_weights=payload.get("basis_weights"),
+                            syntax_assist=bool(payload.get("syntax_assist", True)),
+                        )
+                    )
+                elif self.path == "/api/compile_raw":
+                    self._send_json(session.compiler.compile_code(payload.get("code", "")))
+                else:
+                    self.send_error(404)
+            except Exception as exc:
+                self._send_json({"error": str(exc)})
 
-    return ExplorerRequestHandler
-
-
-def build_explorer(config: AutoencoderConfig) -> LatentSpaceExplorer:
-    """Wires DatasetBundle and trained/loaded Autoencoder into LatentSpaceExplorer via DI."""
-    dataset = config.build_dataset()
-    model = config.build_model()
-
-    if not config.load_model_path:
-        print(
-            f"\n=== Training {type(model).__name__} ({config.encoder_layers}) "
-            f"for {config.max_epochs} epochs before launching Explorer ==="
-        )
-        model.fit(
-            dataset.inputs,
-            dataset.inputs,
-            batch_size=config.batch_size,
-            epochs=config.max_epochs,
-            lr=config.learning_rate,
-            print_every=max(1, config.max_epochs // 5),
-        )
-        if config.save_model_path:
-            model.save(config.save_model_path)
-            print(f"[OK] Saved trained model to: {config.save_model_path}")
-
-    return LatentSpaceExplorer(model=model, dataset=dataset, threshold=config.threshold)
+    return Handler
 
 
 def main() -> None:
-    parser = build_parser()
-    parser.add_argument("--port", type=int, default=8765, help="Local port for the interactive explorer UI")
-    parser.add_argument("--no-browser", action="store_true", help="Do not open browser automatically")
-
-    raw_config = load_and_merge_config(parser)
-    port = int(raw_config.pop("port", 8765))
-    no_browser = bool(raw_config.pop("no_browser", False))
-
-    config = build_config_object(raw_config)
-    explorer = build_explorer(config)
-
-    server = ThreadingHTTPServer(("0.0.0.0", port), _make_handler(explorer))
+    """Launches the Latent Space Explorer with zero CLI arguments required."""
+    session = ExplorerSession(compiler=FractalCompilerService())
+    port = 8765
+    server = ThreadingHTTPServer(("0.0.0.0", port), _make_handler(session))
     url = f"http://127.0.0.1:{port}"
-    print(f"\n[OK] Interactive Latent Space Explorer running at: {url}")
-    print("     Press Ctrl+C in the terminal to stop the server.")
-
-    if not no_browser:
-        webbrowser.open(url)
-
+    print(f"\n[OK] TP5 Latent Space Explorer running at: {url}")
+    print("     Use the top bar in the browser to load any trained .pkl model.")
+    print("     Press Ctrl+C to stop.")
+    webbrowser.open(url)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\n[INFO] Shutting down Latent Space Explorer.")
         server.server_close()
 
 
