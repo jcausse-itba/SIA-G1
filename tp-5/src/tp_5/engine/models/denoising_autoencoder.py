@@ -6,6 +6,7 @@ from numpy.typing import NDArray
 from ..activation_functions.base_activation import ActivationFunction
 from ..loss_functions.base import Loss
 from ..noises.base import Noise
+from ..schedulers.base import Scheduler
 from ..optimizers.base import Optimizer
 from .autoencoder import Autoencoder
 from .mlp import MLP
@@ -23,7 +24,8 @@ class DenoisingAutoencoder(Autoencoder):
         loss_function: Loss,
         optimizer: Callable[..., Optimizer],
         noise_strategy: Noise,
-        decoder_layers: list[int] | None = None,
+        lr_scheduler: Scheduler | None = None,
+        quantization_scale: float = 1.0,
         seed: int = 42,
     ) -> None:
         super().__init__(
@@ -34,6 +36,8 @@ class DenoisingAutoencoder(Autoencoder):
             loss_function=loss_function,
             optimizer=optimizer,
             decoder_layers=decoder_layers,
+            lr_scheduler=lr_scheduler,
+            quantization_scale=quantization_scale,
         )
         self.noise_strategy = noise_strategy
         self.rng = np.random.default_rng(seed)
@@ -56,6 +60,10 @@ class DenoisingAutoencoder(Autoencoder):
         current_batch_size = batch_size or len(X)
 
         for epoch in range(1, epochs + 1):
+            current_lr = self.lr_scheduler.get_lr(lr, epoch, epochs)
+            for opt_w, opt_b in zip(optimizers_W, optimizers_b):
+                opt_w.lr = current_lr #TODO
+                opt_b.lr = current_lr
             epoch_loss = 0.0
             noisy_X = self.noise_strategy.corrupt(X, self.rng)
 

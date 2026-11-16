@@ -23,7 +23,7 @@ class VariationalLayer(Layer):
         kl_loss: KLDivergence,
         kl_weight: float = 0.001,
         activation_function: ActivationFunction | None = None,
-        min_std: float = 1e-8,
+        min_std: float = 1e-2,
         max_std: float = 10.0,
         seed: int = 42,
         initialization: Any = None,
@@ -68,10 +68,11 @@ class VariationalLayer(Layer):
         grad_mu = grad_output + self.kl_weight * kl_grad_mu
         grad_std = grad_output * self.eps + self.kl_weight * kl_grad_std
         grad_std = np.where(
-            (self.raw_std >= self.min_std) & (self.raw_std <= self.max_std),
-            grad_std,
-            0.0,
-        )
+            ((self.raw_std > self.min_std) | (grad_std < 0.0))
+            & ((self.raw_std < self.max_std) | (grad_std > 0.0)),
+             grad_std,
+             0.0,
+         )
 
         grad_raw = np.hstack([grad_mu, grad_std])
         return super().backward(grad_raw)

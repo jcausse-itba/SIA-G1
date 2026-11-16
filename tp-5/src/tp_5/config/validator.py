@@ -25,6 +25,8 @@ ALIASES: dict[str, str] = {
     "dae": "denoisingautoencoder",
     "ae": "autoencoder",
     "none": "nonoise",
+    "cosine": "cosineannealing",
+    "exponential": "exponentialdecay",
     "h": "fontdataset",
     "csv": "csvdataset",
     "code": "codedataset",
@@ -86,6 +88,7 @@ class DatasetBundle:
     inputs: NDArray[np.float64]
     labels: list[str]
     image_shape: tuple[int, int] = (7, 5)
+    quantization_scale: float = 1.0
 
 
 class BaseDataset(ABC):
@@ -125,7 +128,7 @@ class FontDataset(BaseDataset):
             X = X[:subset_size]
             labels = labels[:subset_size]
 
-        return DatasetBundle(inputs=X, labels=labels, image_shape=(7, 5))
+        return DatasetBundle(inputs=X, labels=labels, image_shape=(7, 5), quantization_scale=1.0)
 
 
 class CsvDataset(BaseDataset):
@@ -148,34 +151,35 @@ class CsvDataset(BaseDataset):
 
         side = int(round(np.sqrt(X.shape[1])))
         shape = (side, side) if side * side == X.shape[1] else (7, 5)
-        return DatasetBundle(inputs=X, labels=labels, image_shape=shape)
+        return DatasetBundle(inputs=X, labels=labels, image_shape=shape, quantization_scale=1.0)
+
+
+CODE_VOCAB = "\0\n #%*+,-.:<=>[]_|0123456789ABCDEFabcdefghijklmnopqrstuvwxyz"
+CHAR_TO_IDX = {ch: idx for idx, ch in enumerate(CODE_VOCAB)}
+VOCAB_MAX_IDX = float(len(CODE_VOCAB) - 1)
 
 
 class CodeDataset(BaseDataset):
     """
-    Loads fractal DSL code files (max length 1000 chars) from a directory into
-    normalized 1000-D float vectors in [0, 1] (ord(c) / 127.0, null-padded).
+    Encodes fractal DSL code files (max length 1000 chars) using the
+    58-character DSL vocabulary into normalized 1000-D vectors in [0, 1].
     """
 
     @staticmethod
     def encode_text(text: str) -> NDArray[np.float64]:
         vec = np.zeros(MAX_CODE_LEN, dtype=np.float64)
-        encoded = text[:MAX_CODE_LEN].encode("ascii", errors="ignore")
-        for i, byte_val in enumerate(encoded):
-            vec[i] = min(byte_val, 127) / 127.0
+        for i, ch in enumerate(text[:MAX_CODE_LEN]):
+            vec[i] = CHAR_TO_IDX.get(ch, 2) / VOCAB_MAX_IDX
         return vec
 
     @staticmethod
     def decode_vector(vec: NDArray[np.float64]) -> str:
-        codes = np.clip(np.round(np.asarray(vec, dtype=np.float64).ravel() * 127.0), 0, 127).astype(int)
-        chars: list[str] = []
-        for c in codes:
-            if c == 0:
-                continue
-            if c in (9, 10, 13) or 32 <= c <= 126:
-                chars.append(chr(c))
-            else:
-                chars.append(" ")
+        indices = np.clip(
+            np.round(np.asarray(vec, dtype=np.float64).ravel() * VOCAB_MAX_IDX),
+            0,
+            int(VOCAB_MAX_IDX),
+        ).astype(int)
+        chars = [CODE_VOCAB[idx] for idx in indices if idx != 0]
         return "".join(chars).rstrip()
 
     def load(self, path: Path, subset_size: int | None = None) -> DatasetBundle:
@@ -192,7 +196,12 @@ class CodeDataset(BaseDataset):
         vectors = [self.encode_text(f.read_text(encoding="utf-8", errors="ignore")) for f in files]
         labels = [f.name for f in files]
         X = np.vstack(vectors)
-        return DatasetBundle(inputs=X, labels=labels, image_shape=(25, 40))
+        return DatasetBundle(
+            inputs=X,
+            labels=labels,
+            image_shape=(25, 40),
+            quantization_scale=VOCAB_MAX_IDX,
+        )
 
 
 # =========================================================================
@@ -220,6 +229,9 @@ class AutoencoderConfig:
 
     learning_rate: float = 0.005
     optimizer: str = "adam"
+    lr_scheduler: str = "constant"
+    min_lr_ratio: float = 0.02
+    decay_rate: float = 0.05
     momentum_beta: float = 0.9
     loss: str = "binary_cross_entropy"
     batch_size: int | None = 8
@@ -274,6 +286,7 @@ class AutoencoderConfig:
         resolve_class("tp_5.engine.activation_functions", self.output_activation)
         resolve_class("tp_5.engine.loss_functions", self.loss)
         resolve_class("tp_5.engine.optimizers", self.optimizer)
+        resolve_class("tp_5.engine.schedulers", self.lr_scheduler)
         resolve_class("tp_5.engine.noises", self.noise_type)
         resolve_class(__name__, self._dataset_loader_key())
 
@@ -298,6 +311,10 @@ class AutoencoderConfig:
             cfg["noise_level"] = override_level
         return instantiate_with_reflection(noise_cls, cfg)
 
+    def build_scheduler(self) -> Any:
+        sched_cls = resolve_class("tp_5.engine.schedulers", self.lr_scheduler)
+        return instantiate_with_reflection(sched_cls, self.to_dict())
+
     def build_optimizer_factory(self) -> Callable[..., Any]:
         opt_cls = resolve_class("tp_5.engine.optimizers", self.optimizer)
         sig = inspect.signature(opt_cls.__init__)
@@ -310,7 +327,7 @@ class AutoencoderConfig:
         }
         return partial(opt_cls, **bound_kwargs) if bound_kwargs else opt_cls
 
-    def build_model(self) -> Any:
+    def build_model(self, quantization_scale: float | None = None) -> Any:
         np.random.seed(self.seed)
         if self.load_model_path:
             with self.load_model_path.open("rb") as f:
@@ -318,6 +335,10 @@ class AutoencoderConfig:
             return checkpoint.get("model", checkpoint)
 
         cfg = self.to_dict()
+        if quantization_scale is None:
+            loader_cls = resolve_class(__name__, self._dataset_loader_key())
+            quantization_scale = VOCAB_MAX_IDX if loader_cls is CodeDataset else 1.0
+
         make_act = lambda name: instantiate_with_reflection(
             resolve_class("tp_5.engine.activation_functions", name), cfg
         )
@@ -333,7 +354,9 @@ class AutoencoderConfig:
             "loss_function": make_loss(self.loss),
             "kl_loss": make_loss(self.kl_loss),
             "optimizer": self.build_optimizer_factory(),
+            "lr_scheduler": self.build_scheduler(),
             "noise_strategy": self.build_noise(),
+            "quantization_scale": quantization_scale,
         }
 
         model_cls = resolve_class("tp_5.engine.models", self.model_type)

@@ -129,6 +129,14 @@ def build_parser() -> argparse.ArgumentParser:
         default="adam",
         help="Optimizer class name in tp_5.engine.optimizers (sgd, momentum, rmsprop, adam)",
     )
+    train.add_argument(
+        "--lr-scheduler",
+        type=str,
+        default="constant",
+        help="Scheduler class name in tp_5.engine.schedulers (constant, cosine_annealing, exponential_decay, linear_decay)",
+    )
+    train.add_argument("--min-lr-ratio", type=float, default=0.02, help="Minimum lr ratio for Cosine/Linear schedulers")
+    train.add_argument("--decay-rate", type=float, default=0.05, help="Decay rate for ExponentialDecay scheduler")
     train.add_argument("--momentum-beta", type=float, default=0.9, help="Momentum alpha coefficient")
     train.add_argument(
         "--loss",

@@ -6,13 +6,14 @@ from numpy.typing import NDArray
 from ..activation_functions.base_activation import ActivationFunction
 from ..loss_functions.base import Loss
 from ..optimizers.base import Optimizer
+from ..schedulers.base import Scheduler
 from .mlp import MLP
 
 
 class Autoencoder(MLP):
     """
     Standard Autoencoder inheriting training/saving mechanics from MLP while
-    exposing `encode(X)` -> 2D latent space and `decode(Z)` -> reconstruction.
+    exposing `encode(X)` -> latent space and `decode(Z)` -> reconstruction.
     """
 
     def __init__(
@@ -24,6 +25,8 @@ class Autoencoder(MLP):
         loss_function: Loss,
         optimizer: Callable[..., Optimizer],
         decoder_layers: list[int] | None = None,
+        lr_scheduler: Scheduler | None = None,
+        quantization_scale: float = 1.0,
     ) -> None:
         if len(encoder_layers) < 2:
             raise ValueError("encoder_layers must have at least [input_dim, latent_dim].")
@@ -36,15 +39,17 @@ class Autoencoder(MLP):
             output_activation=output_activation,
             loss_function=loss_function,
             optimizer=optimizer,
+            lr_scheduler=lr_scheduler,
         )
 
         self.encoder_sizes = list(encoder_layers)
         self.decoder_sizes = list(dec_layers)
         self.latent_layer_idx = len(encoder_layers) - 2
         self.layers[self.latent_layer_idx].activation_function = latent_activation
+        self.quantization_scale = float(quantization_scale)
 
     def encode(self, x: NDArray[np.float64]) -> NDArray[np.float64]:
-        """Projects input patterns into the latent space (e.g. R^2)."""
+        """Projects input patterns into the latent space."""
         out = x
         for layer in self.layers[: self.latent_layer_idx + 1]:
             out = layer.feed_forward(out)
@@ -57,24 +62,24 @@ class Autoencoder(MLP):
             out = layer.feed_forward(out)
         return out
 
+    def _discretize(self, values: NDArray[np.float64], threshold: float) -> NDArray[np.float64]:
+        scale = getattr(self, "quantization_scale", 1.0)
+        return np.clip(np.floor(values * scale + (1.0 - threshold)), 0.0, scale)
+
     def evaluate_reconstruction(
         self,
         X_input: NDArray[np.float64],
         X_target: NDArray[np.float64] | None = None,
         threshold: float = 0.5,
     ) -> dict[str, Any]:
-        """Evaluates pixel-level reconstruction accuracy and latent encodings."""
+        """Evaluates discrete symbol/pixel reconstruction accuracy and latent encodings."""
         target = X_input if X_target is None else X_target
         probs = self.forward(X_input)
-        is_binary = np.all((target == 0.0) | (target == 1.0))
-        if is_binary:
-            reconstructed = (probs >= threshold).astype(np.float64)
-            target_bin = (target >= threshold).astype(np.float64)
-        else:
-            reconstructed = np.clip(np.round(probs * 127.0), 0.0, 127.0)
-            target_bin = np.clip(np.round(target * 127.0), 0.0, 127.0)
 
-        pixel_errors = np.sum(np.abs(target_bin - reconstructed), axis=1).astype(int)
+        reconstructed = self._discretize(probs, threshold)
+        target_disc = self._discretize(target, threshold)
+
+        pixel_errors = np.sum(np.abs(target_disc - reconstructed) >= 1.0, axis=1).astype(int)
         loss = float(self.loss_fn.compute(probs, target))
 
         return {

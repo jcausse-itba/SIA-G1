@@ -2,10 +2,13 @@ from typing import Callable
 
 import numpy as np
 from numpy.typing import NDArray
-from ..layer import Layer
+
 from ..activation_functions.base_activation import ActivationFunction
-from ..optimizers.base import Optimizer
+from ..layer import Layer
 from ..loss_functions.base import Loss
+from ..optimizers.base import Optimizer
+from ..schedulers.base import Scheduler
+from ..schedulers.constant import Constant
 from .base import BaseModel
 
 
@@ -17,23 +20,21 @@ class MLP(BaseModel):
         output_activation: ActivationFunction,
         loss_function: Loss,
         optimizer: Callable[..., Optimizer],
+        lr_scheduler: Scheduler | None = None,
     ):
         """
-        Initializes an MLP given layer dimensions.
-
-        `optimizer` is a factory (an Optimizer subclass or a functools.partial of one)
-        that is called with `lr=...` to create one optimizer per parameter array.
+        Initializes an MLP given layer dimensions and injected collaborators.
         """
         self.layers: list[Layer] = []
         self.loss_fn: Loss = loss_function
         self.optimizer: Callable[..., Optimizer] = optimizer
+        self.lr_scheduler: Scheduler = lr_scheduler or Constant()
 
         for i in range(len(layer_sizes) - 1):
             in_dim = layer_sizes[i]
             out_dim = layer_sizes[i + 1]
-            is_last = (i == len(layer_sizes) - 2)
+            is_last = i == len(layer_sizes) - 2
 
-            # Use output_activation for final layer if specified, else the hidden activation
             if is_last and output_activation is not None:
                 act = output_activation
             else:
@@ -57,7 +58,6 @@ class MLP(BaseModel):
             grad_input, grad_W, grad_b = layer.backward(grad_input)
             grads.append((grad_W, grad_b))
 
-        # Reverse once at the end to preserve layer order [layer_0, layer_1, ...]
         grads.reverse()
         return grads
 
@@ -77,25 +77,30 @@ class MLP(BaseModel):
         if batch_size is not None and batch_size <= 0:
             raise ValueError("Batch size must be greater than zero.")
 
-        # Each weight matrix and bias vector MUST have its own optimizer instance
-        # to correctly preserve moment states (m and v).
         optimizers_W = [self.optimizer(lr=lr) for _ in self.layers]
         optimizers_b = [self.optimizer(lr=lr) for _ in self.layers]
         history = []
         current_batch_size = batch_size or len(X)
-        is_full_batch = (current_batch_size == len(X))
+        is_full_batch = current_batch_size == len(X)
+        rng = np.random.default_rng(42)
 
         for epoch in range(1, epochs + 1):
             epoch_loss = 0.0
+            current_lr = self.lr_scheduler.get_lr(lr, epoch, epochs)
+            for opt_w, opt_b in zip(optimizers_W, optimizers_b):
+                opt_w.lr = current_lr
+                opt_b.lr = current_lr
+
+            perm = None if is_full_batch else rng.permutation(len(X))
 
             for start in range(0, len(X), current_batch_size):
                 if is_full_batch:
                     batch_X, batch_y = X, y
                 else:
-                    batch_X = X[start:start + current_batch_size]
-                    batch_y = y[start:start + current_batch_size]
+                    idx = perm[start : start + current_batch_size]
+                    batch_X = X[idx] #TODO
+                    batch_y = y[idx]
 
-                # Single forward pass per batch
                 y_pred = self.forward(batch_X)
                 epoch_loss += float(self.loss_fn.compute(y_pred, batch_y)) * len(batch_X)
 

@@ -8,6 +8,7 @@ from ..loss_functions.base import Loss
 from ..loss_functions.elbo import ELBOLoss
 from ..loss_functions.kl_divergence import KLDivergence
 from ..optimizers.base import Optimizer
+from ..schedulers.base import Scheduler
 from ..variational_layer import VariationalLayer
 from .autoencoder import Autoencoder
 from .mlp import MLP
@@ -30,6 +31,8 @@ class VariationalAutoencoder(Autoencoder):
         kl_loss: KLDivergence,
         decoder_layers: list[int] | None = None,
         kl_weight: float = 0.001,
+        lr_scheduler: Scheduler | None = None,
+        quantization_scale: float = 1.0,
         seed: int = 42,
     ) -> None:
         super().__init__(
@@ -40,6 +43,8 @@ class VariationalAutoencoder(Autoencoder):
             loss_function=loss_function,
             optimizer=optimizer,
             decoder_layers=decoder_layers,
+            lr_scheduler=lr_scheduler,
+            quantization_scale=quantization_scale,
         )
 
         latent_in_dim = self.encoder_sizes[-2]
