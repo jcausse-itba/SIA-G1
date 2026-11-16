@@ -31,8 +31,13 @@ class SearchSpaceSpec:
     output_activation: str = "sigmoid"
     losses: list[str] = field(default_factory=lambda: ["binary_cross_entropy", "mean_squared_error"])
     optimizers: list[str] = field(default_factory=lambda: ["adam"])
+    lr_schedulers: list[str] = field(
+        default_factory=lambda: ["cosine_annealing", "exponential_decay", "linear_decay", "constant"]
+    )
     batch_sizes: list[int] = field(default_factory=lambda: [4, 8, 16, 32])
     lr_range: tuple[float, float] = (5e-4, 2e-2)
+    min_lr_ratio_range: tuple[float, float] = (0.005, 0.1)
+    decay_rate_range: tuple[float, float] = (0.01, 0.2)
     beta1_range: tuple[float, float] = (0.85, 0.99)
     beta2_range: tuple[float, float] = (0.95, 0.9999)
     epsilon_range: tuple[float, float] = (1e-8, 1e-6)
@@ -106,7 +111,9 @@ class BayesianAutoencoderSearcher:
 
     def _sample_trial_config(self, trial: optuna.Trial) -> AutoencoderConfig:
         arch_key = trial.suggest_categorical("architecture", list(self.spec.candidate_architectures.keys()))
-        raw = {
+        scheduler_name = trial.suggest_categorical("lr_scheduler", self.spec.lr_schedulers)
+
+        raw: dict[str, Any] = {
             "model_type": self.spec.model_type,
             "dataset_path": self.spec.dataset_path,
             "encoder_layers": self.spec.candidate_architectures[arch_key],
@@ -115,6 +122,9 @@ class BayesianAutoencoderSearcher:
             "output_activation": self.spec.output_activation,
             "loss": trial.suggest_categorical("loss", self.spec.losses),
             "optimizer": trial.suggest_categorical("optimizer", self.spec.optimizers),
+            "lr_scheduler": scheduler_name,
+            "min_lr_ratio": trial.suggest_float("min_lr_ratio", *self.spec.min_lr_ratio_range, log=True),
+            "decay_rate": trial.suggest_float("decay_rate", *self.spec.decay_rate_range, log=True),
             "batch_size": trial.suggest_categorical("batch_size", self.spec.batch_sizes),
             "learning_rate": trial.suggest_float("learning_rate", *self.spec.lr_range, log=True),
             "beta1": trial.suggest_float("beta1", *self.spec.beta1_range),
@@ -136,8 +146,14 @@ class BayesianAutoencoderSearcher:
 
     def run_search(self, dataset: DatasetBundle | None = None) -> tuple[AutoencoderConfig, Any, dict[str, Any]]:
         if dataset is None:
+            first_arch = next(iter(self.spec.candidate_architectures.values()))
             base_cfg = self.config_factory(
-                {"model_type": self.spec.model_type, "dataset_path": self.spec.dataset_path, **self.spec.fixed_overrides}
+                {
+                    "model_type": self.spec.model_type,
+                    "dataset_path": self.spec.dataset_path,
+                    "encoder_layers": first_arch,
+                    **self.spec.fixed_overrides,
+                }
             )
             dataset = base_cfg.build_dataset()
 
@@ -148,14 +164,14 @@ class BayesianAutoencoderSearcher:
 
         def objective(trial: optuna.Trial) -> float:
             cfg = self._sample_trial_config(trial)
-            model = cfg.build_model()
+            model = cfg.build_model(quantization_scale=dataset.quantization_scale)
             start_time = time.time()
             best_trial_score = float("inf")
             best_trial_summary: dict[str, Any] | None = None
 
             print(
                 f"\n>>> Trial #{trial.number} | Model={cfg.model_type} | Arch={cfg.encoder_layers} | "
-                f"Hid={cfg.hidden_activation} | Lat={cfg.latent_activation} | "
+                f"Hid={cfg.hidden_activation} | Sched={cfg.lr_scheduler} | "
                 f"Batch={cfg.batch_size} | LR={cfg.learning_rate:.5f}"
             )
 
@@ -176,10 +192,21 @@ class BayesianAutoencoderSearcher:
                         self._best_score = score
                         self.best_config = cfg
                         self.best_summary = summary
-                        current_model.save(self.output_dir / "best_model.pkl")
+                        current_model.save(
+                            self.output_dir / "best_model.pkl",
+                            metadata={
+                                "model_type": cfg.model_type,
+                                "dataset_path": str(cfg.dataset_path),
+                                "subset_size": cfg.subset_size,
+                                "encoder_layers": cfg.encoder_layers,
+                                "labels": dataset.labels,
+                                "max_pixel_error": summary["max_pixel_error"],
+                                "mean_pixel_error": summary["mean_pixel_error"],
+                            },
+                        )
 
                     trial.report(score, epoch)
-                    if summary["max_pixel_error"] == 0 and summary["loss"] < 0.01:
+                    if summary["max_pixel_error"] == 0 and summary["loss"] < 1e-4:
                         return True
 
                 return False
@@ -190,7 +217,7 @@ class BayesianAutoencoderSearcher:
                 batch_size=cfg.batch_size,
                 epochs=cfg.max_epochs,
                 lr=cfg.learning_rate,
-                print_every=max(500, cfg.max_epochs // 4),
+                print_every=max(250, cfg.max_epochs // 4),
                 epoch_callback=epoch_callback,
             )
 
@@ -199,9 +226,10 @@ class BayesianAutoencoderSearcher:
                 best_trial_score = self.compute_objective_score(best_trial_summary)
 
             print(
-                f"    [Trial #{trial.number} Done] MaxPxErr={best_trial_summary['max_pixel_error']} | "
-                f"<=1px={best_trial_summary['patterns_le_1_error']}/{best_trial_summary['num_patterns']} | "
-                f"Loss={best_trial_summary['loss']:.5f}"
+                f"    [Trial #{trial.number} Done] MaxErr={best_trial_summary['max_pixel_error']} | "
+                f"MeanErr={best_trial_summary['mean_pixel_error']:.2f} | "
+                f"<=1err={best_trial_summary['patterns_le_1_error']}/{best_trial_summary['num_patterns']} | "
+                f"Loss={best_trial_summary['loss']:.6f}"
             )
             return best_trial_score
 
@@ -215,9 +243,19 @@ class BayesianAutoencoderSearcher:
         listener.join(timeout=0.5)
 
         study.trials_dataframe().to_csv(self.output_dir / "optuna_trials.csv", index=False)
+        try:
+            from optuna.visualization import plot_optimization_history, plot_param_importances, plot_slice
+
+            plot_optimization_history(study).write_html(str(self.output_dir / "plot_optimization_history.html"))
+            if len(study.trials) > 1:
+                plot_param_importances(study).write_html(str(self.output_dir / "plot_param_importances.html"))
+            plot_slice(study).write_html(str(self.output_dir / "plot_slice.html"))
+        except Exception:
+            pass
+
         if self.best_config is None or self.best_summary is None:
             raise RuntimeError("No valid trial completed during Bayesian search.")
 
         self.best_config.load_model_path = self.output_dir / "best_model.pkl"
-        self.best_model = self.best_config.build_model()
+        self.best_model = self.best_config.build_model(quantization_scale=dataset.quantization_scale)
         return self.best_config, self.best_model, self.best_summary
