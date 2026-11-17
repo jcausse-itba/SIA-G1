@@ -85,6 +85,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Activation function class name for the output reconstruction layer",
     )
     model.add_argument("--beta", type=float, default=1.0, help="Beta slope for Sigmoid/Tanh")
+    model.add_argument(
+        "--residual",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Enable residual skip connections within encoder and decoder layers",
+    )
 
     # Denoising & Variational Parameters
     special = parser.add_argument_group("Denoising & Variational Parameters")

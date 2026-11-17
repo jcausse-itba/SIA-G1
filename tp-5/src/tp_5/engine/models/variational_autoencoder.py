@@ -34,6 +34,7 @@ class VariationalAutoencoder(Autoencoder):
         lr_scheduler: Scheduler | None = None,
         quantization_scale: float = 1.0,
         seed: int = 42,
+        residual: bool = False,
     ) -> None:
         super().__init__(
             encoder_layers=encoder_layers,
@@ -45,6 +46,7 @@ class VariationalAutoencoder(Autoencoder):
             decoder_layers=decoder_layers,
             lr_scheduler=lr_scheduler,
             quantization_scale=quantization_scale,
+            residual=residual,
         )
 
         latent_in_dim = self.encoder_sizes[-2]
@@ -56,7 +58,7 @@ class VariationalAutoencoder(Autoencoder):
             kl_loss=kl_loss,
             kl_weight=kl_weight,
             activation_function=latent_activation,
-            seed=seed,
+             seed=seed,
         )
         self.layers[self.latent_layer_idx] = self.variational_layer
         self.loss_fn = ELBOLoss(

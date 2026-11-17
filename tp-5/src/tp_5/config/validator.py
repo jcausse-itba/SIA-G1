@@ -219,6 +219,7 @@ class AutoencoderConfig:
     latent_activation: str = "linear"
     output_activation: str = "sigmoid"
     beta: float = 1.0
+    residual: bool = False
 
     noise_type: str = "bit_flip"
     noise_level: float = 0.1

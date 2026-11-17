@@ -13,11 +13,13 @@ class Layer:
         out_dimm: int,
         activation_function: ActivationFunction,
         initialization: Any = None,
+        residual: bool = False,
     ) -> None:
         self.W: NDArray[np.float64]
         self.b: NDArray[np.float64]
         self.input: NDArray[np.float64]
         self.z: NDArray[np.float64]
+        self.residual: bool = residual
 
         if initialization is None:
             std = np.sqrt(2.0 / in_dimm)
@@ -31,7 +33,12 @@ class Layer:
     def feed_forward(self, x: NDArray[np.float64]) -> NDArray[np.float64]:
         self.input = x
         self.z = rust_matmul.matmul(x, self.W) + self.b
-        return self.activation_function.compute(self.z)
+        out = self.activation_function.compute(self.z)
+        if getattr(self, "residual", False):
+            k = min(x.shape[1], out.shape[1])
+            out = out.copy()
+            out[:, :k] += x[:, :k]
+        return out
 
     def backward(
         self, grad_output: NDArray[np.float64]
@@ -41,4 +48,7 @@ class Layer:
         grad_b = np.sum(grad_z, axis=0)
 
         grad_input = rust_matmul.matmul(grad_z, self.W.T)
+        if getattr(self, "residual", False):
+            k = min(grad_input.shape[1], grad_output.shape[1])
+            grad_input[:, :k] += grad_output[:, :k]
         return grad_input, grad_W, grad_b

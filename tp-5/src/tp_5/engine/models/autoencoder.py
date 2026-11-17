@@ -27,6 +27,7 @@ class Autoencoder(MLP):
         decoder_layers: list[int] | None = None,
         lr_scheduler: Scheduler | None = None,
         quantization_scale: float = 1.0,
+        residual: bool = False,
     ) -> None:
         if len(encoder_layers) < 2:
             raise ValueError("encoder_layers must have at least [input_dim, latent_dim].")
@@ -47,6 +48,9 @@ class Autoencoder(MLP):
         self.latent_layer_idx = len(encoder_layers) - 2
         self.layers[self.latent_layer_idx].activation_function = latent_activation
         self.quantization_scale = float(quantization_scale)
+        self.residual = bool(residual)
+        for layer in self.layers[: self.latent_layer_idx] + self.layers[self.latent_layer_idx + 1 : -1]:
+            layer.residual = self.residual
 
     def encode(self, x: NDArray[np.float64]) -> NDArray[np.float64]:
         """Projects input patterns into the latent space."""
