@@ -27,6 +27,7 @@ class DenoisingAutoencoder(Autoencoder):
         lr_scheduler: Scheduler | None = None,
         quantization_scale: float = 1.0,
         seed: int = 42,
+        decoder_layers: list[int] | None = None,
     ) -> None:
         super().__init__(
             encoder_layers=encoder_layers,

@@ -1,0 +1,710 @@
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
+from tp_5.config.validator import AutoencoderConfig, DatasetBundle
+from tp_5.training_report import TrainingReporter
+
+
+ROOT = Path(__file__).resolve().parents[2]
+OUTPUT_DIR = ROOT / "study" / "ej1b" / "resultados"
+DATASET = ROOT / "doc" / "font.h"
+ARCHITECTURES = (
+    [35, 32, 16, 2],
+    [35, 48, 24, 2],
+    [35, 64, 32, 2],
+)
+OPTIMIZERS = ("sgd", "momentum", "adam")
+LEARNING_RATES = (0.001, 0.004, 0.01)
+TRAINING_NOISE_LEVELS = (0.1, 0.2, 0.3)
+EVALUATION_NOISE_LEVELS = (0.0, 0.05, 0.1, 0.2, 0.3, 0.4)
+SELECTION_NOISE_LEVELS = EVALUATION_NOISE_LEVELS[1:]
+EVALUATION_REPEATS = 5
+EVALUATION_SEED = 2026
+EXPERIMENT_EPOCHS = 500
+FINAL_EPOCHS = 1500
+BATCH_SIZE = 8
+SEED = 42
+
+
+def make_config(
+    architecture: list[int],
+    *,
+    optimizer: str,
+    learning_rate: float,
+    noise_level: float,
+    max_epochs: int,
+) -> AutoencoderConfig:
+    return AutoencoderConfig(
+        model_type="denoising_autoencoder",
+        dataset_path=DATASET,
+        encoder_layers=architecture,
+        hidden_activation="tanh",
+        latent_activation="linear",
+        output_activation="sigmoid",
+        loss="binary_cross_entropy",
+        optimizer=optimizer,
+        learning_rate=learning_rate,
+        noise_type="bit_flip",
+        noise_level=noise_level,
+        eval_noise_levels=list(EVALUATION_NOISE_LEVELS),
+        batch_size=BATCH_SIZE,
+        max_epochs=max_epochs,
+        threshold=0.5,
+        seed=SEED,
+        output_dir=OUTPUT_DIR,
+    )
+
+
+def make_evaluation_sets(
+    config: AutoencoderConfig,
+    dataset: DatasetBundle,
+) -> dict[float, tuple[np.ndarray, np.ndarray]]:
+    targets = np.tile(dataset.inputs, (EVALUATION_REPEATS, 1))
+    evaluation_sets: dict[float, tuple[np.ndarray, np.ndarray]] = {}
+    for level in EVALUATION_NOISE_LEVELS:
+        noise = config.build_noise(override_level=level)
+        rng = np.random.default_rng(EVALUATION_SEED + round(level * 1000))
+        evaluation_sets[level] = (noise.corrupt(targets, rng), targets)
+    return evaluation_sets
+
+
+def evaluate_profile(
+    model: Any,
+    evaluation_sets: dict[float, tuple[np.ndarray, np.ndarray]],
+) -> dict[str, Any]:
+    by_level: dict[float, dict[str, float]] = {}
+    for level, (noisy_inputs, clean_targets) in evaluation_sets.items():
+        summary = model.evaluate_reconstruction(noisy_inputs, X_target=clean_targets)
+        corrupted_per_pattern = np.sum(noisy_inputs != clean_targets, axis=1)
+        by_level[level] = {
+            "corrupted_mean": float(np.mean(corrupted_per_pattern)),
+            "reconstruction_mean": float(summary["mean_pixel_error"]),
+            "reconstruction_std": float(np.std(summary["pixel_errors"])),
+            "reconstruction_max": float(summary["max_pixel_error"]),
+            "loss": float(summary["loss"]),
+        }
+
+    level_means = [by_level[level]["reconstruction_mean"] for level in SELECTION_NOISE_LEVELS]
+    return {
+        "by_level": by_level,
+        "robustness_score": float(np.mean(level_means)),
+        "worst_level_mean_error": float(np.max(level_means)),
+        "clean_mean_error": by_level[0.0]["reconstruction_mean"],
+        "mean_loss": float(
+            np.mean([by_level[level]["loss"] for level in SELECTION_NOISE_LEVELS])
+        ),
+    }
+
+
+def train_experiment(
+    config: AutoencoderConfig,
+    dataset: DatasetBundle,
+    evaluation_sets: dict[float, tuple[np.ndarray, np.ndarray]],
+) -> dict[str, Any]:
+    model = config.build_model(quantization_scale=dataset.quantization_scale)
+    history = model.fit(
+        dataset.inputs,
+        dataset.inputs,
+        batch_size=config.batch_size,
+        epochs=config.max_epochs,
+        lr=config.learning_rate,
+        print_every=config.max_epochs + 1,
+    )
+    return {
+        "config": config,
+        "model": model,
+        "history": history,
+        "epochs": len(history),
+        "profile": evaluate_profile(model, evaluation_sets),
+    }
+
+
+def compare_configurations(
+    dataset: DatasetBundle,
+    evaluation_sets: dict[float, tuple[np.ndarray, np.ndarray]],
+) -> list[dict[str, Any]]:
+    combinations = [
+        (architecture, optimizer, learning_rate, noise_level)
+        for architecture in ARCHITECTURES
+        for optimizer in OPTIMIZERS
+        for learning_rate in LEARNING_RATES
+        for noise_level in TRAINING_NOISE_LEVELS
+    ]
+    experiments = []
+    for index, (architecture, optimizer, learning_rate, noise_level) in enumerate(
+        combinations,
+        start=1,
+    ):
+        print(
+            f"Prueba {index}/{len(combinations)}: encoder={architecture}, "
+            f"optimizer={optimizer}, lr={learning_rate:g}, ruido_entrenamiento={noise_level:g}"
+        )
+        config = make_config(
+            architecture,
+            optimizer=optimizer,
+            learning_rate=learning_rate,
+            noise_level=noise_level,
+            max_epochs=EXPERIMENT_EPOCHS,
+        )
+        experiments.append(train_experiment(config, dataset, evaluation_sets))
+    return experiments
+
+
+def experiment_rank(experiment: dict[str, Any]) -> tuple[float, ...]:
+    config = experiment["config"]
+    profile = experiment["profile"]
+    return (
+        profile["robustness_score"],
+        profile["worst_level_mean_error"],
+        profile["clean_mean_error"],
+        profile["mean_loss"],
+        float(parameter_count(config.encoder_layers)),
+        float(experiment["epochs"]),
+    )
+
+
+def parameter_count(encoder_layers: list[int]) -> int:
+    layers = encoder_layers + list(reversed(encoder_layers[:-1]))
+    return sum(source * target + target for source, target in zip(layers, layers[1:]))
+
+
+def same_configuration(first: dict[str, Any], second: dict[str, Any]) -> bool:
+    first_config = first["config"]
+    second_config = second["config"]
+    return (
+        first_config.encoder_layers == second_config.encoder_layers
+        and first_config.optimizer == second_config.optimizer
+        and first_config.learning_rate == second_config.learning_rate
+        and first_config.noise_level == second_config.noise_level
+    )
+
+
+def best_per_group(
+    experiments: list[dict[str, Any]],
+    group_key: str,
+) -> list[dict[str, Any]]:
+    best: dict[Any, dict[str, Any]] = {}
+    for experiment in experiments:
+        config = experiment["config"]
+        if group_key == "architecture":
+            group = tuple(config.encoder_layers)
+            label = "-".join(map(str, config.encoder_layers))
+        elif group_key == "optimizer":
+            group = config.optimizer
+            label = config.optimizer
+        elif group_key == "learning_rate":
+            group = config.learning_rate
+            label = f"{config.learning_rate:g}"
+        else:
+            group = config.noise_level
+            label = f"{config.noise_level:g}"
+
+        current = best.get(group)
+        if current is None or experiment_rank(experiment) < experiment_rank(current):
+            best[group] = {**experiment, "choice": label}
+    return list(best.values())
+
+
+def write_architecture_diagram(encoder_layers: list[int], path: Path) -> None:
+    dimensions = encoder_layers + list(reversed(encoder_layers[:-1]))
+    latent_index = len(encoder_layers) - 1
+    last_index = len(dimensions) - 1
+    positions = [
+        np.linspace(0.12, 0.88, min(dimension, 8)).tolist()
+        for dimension in dimensions
+    ]
+    fig = go.Figure()
+
+    for layer_index in range(last_index):
+        x_values: list[float | None] = []
+        y_values: list[float | None] = []
+        for left in positions[layer_index]:
+            for right in positions[layer_index + 1]:
+                x_values.extend([float(layer_index), float(layer_index + 1), None])
+                y_values.extend([left, right, None])
+        fig.add_trace(
+            go.Scatter(
+                x=x_values,
+                y=y_values,
+                mode="lines",
+                line={"color": "#b9c3cf", "width": 0.6},
+                showlegend=False,
+                hoverinfo="skip",
+            )
+        )
+
+    for index, (dimension, ys) in enumerate(zip(dimensions, positions)):
+        fig.add_trace(
+            go.Scatter(
+                x=[float(index)] * len(ys),
+                y=ys,
+                mode="markers",
+                marker={"size": 10, "color": "#4c78a8"},
+                showlegend=False,
+                hoverinfo="skip",
+            )
+        )
+        if dimension > len(ys):
+            fig.add_annotation(
+                x=index,
+                y=0.5,
+                text=f"…<br>{dimension} neuronas",
+                showarrow=False,
+                font={"size": 11},
+                bgcolor="rgba(255,255,255,0.82)",
+            )
+
+    for index, dimension in enumerate(dimensions):
+        if index == 0:
+            label = f"Entrada<br>{dimension} píxeles"
+        elif index == latent_index:
+            label = f"Latente<br>{dimension}D"
+        elif index == last_index:
+            label = f"Salida<br>{dimension} píxeles"
+        elif index < latent_index:
+            label = f"Encoder<br>{dimension}"
+        else:
+            label = f"Decoder<br>{dimension}"
+        fig.add_annotation(x=index, y=0.02, text=label, showarrow=False, yanchor="top")
+
+    fig.add_vrect(x0=0.4, x1=latent_index - 0.4, fillcolor="#dceaf7", opacity=0.2, line_width=0)
+    fig.add_vrect(
+        x0=latent_index - 0.3,
+        x1=latent_index + 0.3,
+        fillcolor="#f4d35e",
+        opacity=0.24,
+        line_width=0,
+    )
+    fig.add_vrect(
+        x0=latent_index + 0.4,
+        x1=last_index - 0.4,
+        fillcolor="#e8f2df",
+        opacity=0.22,
+        line_width=0,
+    )
+    fig.update_layout(
+        title=f"Arquitectura DAE seleccionada: {'–'.join(map(str, dimensions))}",
+        template="plotly_white",
+        height=580,
+        showlegend=False,
+        xaxis={"visible": False, "range": [-0.5, last_index + 0.5]},
+        yaxis={"visible": False, "range": [-0.12, 1.0]},
+        margin={"b": 90},
+    )
+    fig.write_html(path, include_plotlyjs="cdn")
+
+
+def add_score_bars(
+    fig: Any,
+    rows: list[dict[str, Any]],
+    selected: dict[str, Any],
+    color: str,
+    *,
+    row: int | None = None,
+    col: int | None = None,
+) -> None:
+    profiles = [item["profile"] for item in rows]
+    trace = go.Bar(
+        x=[item["choice"] for item in rows],
+        y=[profile["robustness_score"] for profile in profiles],
+        marker_color=[
+            "#2ca02c" if same_configuration(item, selected) else color
+            for item in rows
+        ],
+        text=[f"{profile['robustness_score']:.2f}" for profile in profiles],
+        textposition="outside",
+        customdata=[
+            [
+                profile["worst_level_mean_error"],
+                profile["clean_mean_error"],
+                item["config"].noise_level,
+                item["config"].learning_rate,
+                item["config"].optimizer,
+                "-".join(map(str, item["config"].encoder_layers)),
+                item["epochs"],
+            ]
+            for item, profile in zip(rows, profiles)
+        ],
+        hovertemplate=(
+            "%{x}<br>Error promedio ruidoso: %{y:.3f} px/patrón<br>"
+            "Peor nivel (media): %{customdata[0]:.3f} px<br>"
+            "Error limpio: %{customdata[1]:.3f} px<br>"
+            "Ruido de entrenamiento: %{customdata[2]}<br>"
+            "Learning rate: %{customdata[3]}<br>"
+            "Optimizador: %{customdata[4]}<br>"
+            "Encoder: %{customdata[5]}<br>"
+            "Épocas: %{customdata[6]}<extra></extra>"
+        ),
+    )
+    if row is None or col is None:
+        fig.add_trace(trace)
+    else:
+        fig.add_trace(trace, row=row, col=col)
+
+
+def write_comparison_charts(
+    experiments: list[dict[str, Any]],
+    selected: dict[str, Any],
+    output_dir: Path,
+) -> None:
+    architecture_rows = best_per_group(experiments, "architecture")
+    fig_arch = go.Figure()
+    add_score_bars(fig_arch, architecture_rows, selected, "#4c78a8")
+    fig_arch.update_layout(
+        title="Exploración de arquitecturas: mejor configuración observada por arquitectura",
+        xaxis_title="Capas del encoder",
+        yaxis_title="Error medio de reconstrucción en niveles ruidosos (px/patrón)",
+        template="plotly_white",
+        height=520,
+    )
+    fig_arch.write_html(output_dir / "exploracion_arquitecturas.html", include_plotlyjs="cdn")
+
+    groups = (
+        ("optimizer", "Optimizador", "#f58518"),
+        ("learning_rate", "Learning rate", "#54a24b"),
+        ("noise_level", "Ruido usado al entrenar", "#b279a2"),
+    )
+    fig_grid = make_subplots(
+        rows=1,
+        cols=3,
+        subplot_titles=tuple(title for _, title, _ in groups),
+        horizontal_spacing=0.12,
+    )
+    for column, (key, _, color) in enumerate(groups, start=1):
+        add_score_bars(
+            fig_grid,
+            best_per_group(experiments, key),
+            selected,
+            color,
+            row=1,
+            col=column,
+        )
+        fig_grid.update_xaxes(title_text=groups[column - 1][1], row=1, col=column)
+        fig_grid.update_yaxes(
+            title_text="Error medio (px/patrón)",
+            row=1,
+            col=column,
+        )
+    fig_grid.update_layout(
+        title="Hiperparámetros: mejor combinación observada por grupo (verde = seleccionada)",
+        template="plotly_white",
+        height=560,
+        showlegend=False,
+    )
+    fig_grid.write_html(output_dir / "optimizadores_hiperparametros.html", include_plotlyjs="cdn")
+
+
+def write_experiment_csv(
+    experiments: list[dict[str, Any]],
+    selected: dict[str, Any],
+    path: Path,
+) -> None:
+    fields = (
+        "choice",
+        "encoder_layers",
+        "optimizer",
+        "learning_rate",
+        "training_noise_level",
+        "batch_size",
+        "epochs",
+        "robustness_score",
+        "worst_level_mean_error",
+        "clean_mean_error",
+        "mean_loss",
+        "selected",
+    )
+    with path.open("w", encoding="utf-8", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=fields)
+        writer.writeheader()
+        for item in experiments:
+            config = item["config"]
+            profile = item["profile"]
+            writer.writerow(
+                {
+                    "choice": (
+                        f"{'-'.join(map(str, config.encoder_layers))} | "
+                        f"{config.optimizer} | lr={config.learning_rate:g} | "
+                        f"ruido={config.noise_level:g}"
+                    ),
+                    "encoder_layers": "-".join(map(str, config.encoder_layers)),
+                    "optimizer": config.optimizer,
+                    "learning_rate": config.learning_rate,
+                    "training_noise_level": config.noise_level,
+                    "batch_size": config.batch_size,
+                    "epochs": item["epochs"],
+                    "robustness_score": profile["robustness_score"],
+                    "worst_level_mean_error": profile["worst_level_mean_error"],
+                    "clean_mean_error": profile["clean_mean_error"],
+                    "mean_loss": profile["mean_loss"],
+                    "selected": same_configuration(item, selected),
+                }
+            )
+
+
+def toml_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, (int, float)):
+        return repr(value)
+    if isinstance(value, list):
+        return "[" + ", ".join(toml_value(item) for item in value) + "]"
+    raise TypeError(f"Unsupported TOML value: {type(value).__name__}")
+
+
+def project_path(path: Path) -> str:
+    resolved = path.resolve()
+    try:
+        return resolved.relative_to(ROOT).as_posix()
+    except ValueError:
+        return resolved.as_posix()
+
+
+def write_winning_config(
+    config: AutoencoderConfig,
+    model_path: Path,
+    trained_epochs: int,
+    selected_score: float,
+    profile: dict[str, Any],
+    path: Path,
+) -> None:
+    sections = {
+        "data": {"dataset_path": project_path(DATASET)},
+        "model": {
+            "model_type": config.model_type,
+            "encoder_layers": config.encoder_layers,
+            "decoder_layers": list(reversed(config.encoder_layers[:-1])),
+            "hidden_activation": config.hidden_activation,
+            "latent_activation": config.latent_activation,
+            "output_activation": config.output_activation,
+            "beta": config.beta,
+        },
+        "noise": {
+            "noise_type": config.noise_type,
+            "noise_level": config.noise_level,
+            "eval_noise_levels": config.eval_noise_levels,
+        },
+        "training": {
+            "loss": config.loss,
+            "optimizer": config.optimizer,
+            "learning_rate": config.learning_rate,
+            "lr_scheduler": config.lr_scheduler,
+            "batch_size": config.batch_size,
+            "max_epochs": config.max_epochs,
+            "threshold": config.threshold,
+            "seed": config.seed,
+        },
+        "persistence": {
+            "save_model_path": project_path(model_path),
+            "output_dir": project_path(config.output_dir),
+        },
+        "study": {
+            "trained_epochs": trained_epochs,
+            "evaluation_repeats": EVALUATION_REPEATS,
+            "selection_noise_levels": list(SELECTION_NOISE_LEVELS),
+            "selected_robustness_score": selected_score,
+            "final_robustness_score": profile["robustness_score"],
+        },
+    }
+    lines = []
+    for section, values in sections.items():
+        lines.append(f"[{section}]")
+        lines.extend(f"{key} = {toml_value(value)}" for key, value in values.items())
+        lines.append("")
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def write_noise_profile(
+    profile: dict[str, Any],
+    selected_config: AutoencoderConfig,
+    output_dir: Path,
+) -> None:
+    levels = sorted(profile["by_level"])
+    corrupted = [profile["by_level"][level]["corrupted_mean"] for level in levels]
+    reconstructed = [profile["by_level"][level]["reconstruction_mean"] for level in levels]
+    deviation = [profile["by_level"][level]["reconstruction_std"] for level in levels]
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=levels,
+            y=corrupted,
+            mode="lines+markers",
+            name="Error de entrada por ruido",
+            line={"color": "#f58518", "width": 2},
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=levels,
+            y=reconstructed,
+            mode="lines+markers",
+            name="Error después de reconstruir",
+            error_y={"type": "data", "array": deviation, "visible": True},
+            line={"color": "#4c78a8", "width": 2},
+        )
+    )
+    fig.update_layout(
+        title=(
+            "Eliminación de ruido: "
+            f"entrenamiento con bit-flip p={selected_config.noise_level:g}; "
+            f"evaluación sobre {EVALUATION_REPEATS} corrupciones por patrón y nivel"
+        ),
+        xaxis_title="Probabilidad de bit-flip",
+        yaxis_title="Píxeles incorrectos por patrón (media)",
+        template="plotly_white",
+        height=520,
+    )
+    fig.write_html(output_dir / "capacidad_denoising.html", include_plotlyjs="cdn")
+
+    with (output_dir / "perfil_ruido.csv").open("w", encoding="utf-8", newline="") as file:
+        writer = csv.DictWriter(
+            file,
+            fieldnames=(
+                "noise_level",
+                "input_corrupted_mean",
+                "reconstruction_error_mean",
+                "reconstruction_error_std",
+                "reconstruction_max_error",
+            ),
+        )
+        writer.writeheader()
+        for level in levels:
+            metrics = profile["by_level"][level]
+            writer.writerow(
+                {
+                    "noise_level": level,
+                    "input_corrupted_mean": metrics["corrupted_mean"],
+                    "reconstruction_error_mean": metrics["reconstruction_mean"],
+                    "reconstruction_error_std": metrics["reconstruction_std"],
+                    "reconstruction_max_error": metrics["reconstruction_max"],
+                }
+            )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Estudio reproducible del denoising autoencoder para 1b.")
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=OUTPUT_DIR,
+        help="Directorio donde se guardan los gráficos y resultados.",
+    )
+    args = parser.parse_args()
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+
+    dataset_config = make_config(
+        ARCHITECTURES[0],
+        optimizer="adam",
+        learning_rate=LEARNING_RATES[0],
+        noise_level=TRAINING_NOISE_LEVELS[0],
+        max_epochs=EXPERIMENT_EPOCHS,
+    )
+    dataset = dataset_config.build_dataset()
+    evaluation_sets = make_evaluation_sets(dataset_config, dataset)
+
+    experiments = compare_configurations(dataset, evaluation_sets)
+    selected = min(experiments, key=experiment_rank)
+    selected_config = selected["config"]
+    print(
+        "Mejor combinación según error medio en niveles ruidosos, peor nivel, "
+        "error limpio, BCE, parámetros y épocas: "
+        f"encoder={selected_config.encoder_layers}, optimizer={selected_config.optimizer}, "
+        f"lr={selected_config.learning_rate:g}, ruido_entrenamiento={selected_config.noise_level:g}; "
+        f"error medio={selected['profile']['robustness_score']:.3f} px/patrón."
+    )
+    write_comparison_charts(experiments, selected, args.output_dir)
+    write_experiment_csv(experiments, selected, args.output_dir / "comparaciones.csv")
+
+    final_config = make_config(
+        selected_config.encoder_layers,
+        optimizer=selected_config.optimizer,
+        learning_rate=selected_config.learning_rate,
+        noise_level=selected_config.noise_level,
+        max_epochs=FINAL_EPOCHS,
+    )
+    final_result = train_experiment(final_config, dataset, evaluation_sets)
+    if final_result["profile"]["robustness_score"] > selected["profile"]["robustness_score"]:
+        print(
+            "Aviso: el reentrenamiento final obtuvo un error medio mayor que la prueba "
+            "seleccionada; los gráficos muestran las métricas finales medidas."
+        )
+
+    final_profile = evaluate_profile(final_result["model"], evaluation_sets)
+    model_path = args.output_dir / "modelo_ganador.pkl"
+    config_path = args.output_dir / "configuracion_ganadora.toml"
+    final_config.output_dir = args.output_dir
+    final_config.save_model_path = model_path
+    final_result["model"].save(
+        model_path,
+        metadata={
+            "model_type": final_config.model_type,
+            "dataset_path": str(DATASET),
+            "encoder_layers": final_config.encoder_layers,
+            "decoder_layers": list(reversed(final_config.encoder_layers[:-1])),
+            "labels": dataset.labels,
+            "noise_type": final_config.noise_type,
+            "noise_level": final_config.noise_level,
+            "learning_rate": final_config.learning_rate,
+            "optimizer": final_config.optimizer,
+            "robustness_score": final_profile["robustness_score"],
+            "noise_profile": [
+                {"noise_level": level, **metrics}
+                for level, metrics in final_profile["by_level"].items()
+            ],
+        },
+    )
+    write_winning_config(
+        final_config,
+        model_path,
+        final_result["epochs"],
+        selected["profile"]["robustness_score"],
+        final_profile,
+        config_path,
+    )
+
+    reporter = TrainingReporter(args.output_dir, model_name="ej1b")
+    clean_summary = final_result["model"].evaluate_reconstruction(dataset.inputs)
+    reports = reporter.write_reports(
+        loss_history=final_result["history"],
+        eval_summary=clean_summary,
+        dataset_inputs=dataset.inputs,
+        labels=dataset.labels,
+        image_shape=dataset.image_shape,
+        model=final_result["model"],
+    )
+    write_noise_profile(final_profile, final_config, args.output_dir)
+    write_architecture_diagram(
+        final_config.encoder_layers,
+        args.output_dir / "arquitectura_propuesta.html",
+    )
+
+    print(
+        f"Resultado final: error medio en ruido={final_profile['robustness_score']:.3f} px/patrón; "
+        f"error limpio={final_profile['clean_mean_error']:.3f} px/patrón; "
+        f"máximo limpio={clean_summary['max_pixel_error']} px; "
+        f"épocas={final_result['epochs']}."
+    )
+    print("Gráficos y resultados:")
+    for path in sorted(args.output_dir.glob("*.html")):
+        print(f"  - {path}")
+    for name, path in reports.items():
+        print(f"  - {name}: {path}")
+    print(f"  - Comparaciones CSV: {args.output_dir / 'comparaciones.csv'}")
+    print(f"  - Perfil por nivel de ruido CSV: {args.output_dir / 'perfil_ruido.csv'}")
+    print(f"  - Configuración ganadora: {config_path}")
+    print(f"  - Modelo ganador: {model_path}")
+
+
+if __name__ == "__main__":
+    main()
