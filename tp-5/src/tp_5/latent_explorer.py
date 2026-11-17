@@ -35,6 +35,12 @@ class FractalCompilerService:
         self.compiler_path = compiler_path
 
     @staticmethod
+    def _sanitize_dsl(code: str) -> str:
+        """Normalizes fixed-width Mandelbrot formatting (unary '+' and zero-padded max) for Flex/Bison."""
+        code = re.sub(r"([\[,\s])\+(?=\d)", r"\1", code)
+        return re.sub(r"(max:\s*)0+(\d+)", r"\1\2", code)
+
+    @staticmethod
     def _cap_preview_resolution(code: str, max_w: int = 640, max_h: int = 360) -> str:
         """Sets a fast real-time preview resolution and caps excessive IFS points for interactive dragging."""
         lines = [ln for ln in code.splitlines() if not ln.strip().startswith("size:")]
@@ -63,45 +69,52 @@ class FractalCompilerService:
                 "image_b64": None,
             }
 
-        source = self._cap_preview_resolution(code) if fast_preview else code
+        sanitized = self._sanitize_dsl(code)
+        source = self._cap_preview_resolution(sanitized) if fast_preview else sanitized
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             out_bmp = tmp_path / "preview.bmp"
 
-            try:
-                if os.name == "nt" and not self.compiler_path.suffix.endswith(".exe"):
-                    cmd = ["wsl", self._to_wsl_path(self.compiler_path), "preview.bmp"]
-                else:
-                    cmd = [str(self.compiler_path), str(out_bmp)]
+            if os.name == "nt" and not self.compiler_path.suffix.endswith(".exe"):
+                cmd = ["wsl", self._to_wsl_path(self.compiler_path), "preview.bmp"]
+            else:
+                cmd = [str(self.compiler_path), str(out_bmp)]
 
-                proc = subprocess.run(
-                    cmd,
-                    input=source.encode("utf-8"),
-                    cwd=str(tmp_path),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    timeout=8.0,
-                )
-            except Exception as exc:
-                return {"ok": False, "error": str(exc), "image_b64": None}
+            candidates = [source]
+            if re.search(r"\bescape:\s*0\b", source):
+                candidates.append(re.sub(r"\bescape:\s*0\b", "escape: [0, 0]", source))
 
-            # Locate preview.bmp or any generated image in tmp_path
-            bmp_files = [out_bmp] if out_bmp.exists() else list(tmp_path.glob("*.bmp"))
-            if bmp_files and bmp_files[0].stat().st_size > 0:
-                raw_bytes = bmp_files[0].read_bytes()
-                b64 = base64.b64encode(raw_bytes).decode("ascii")
-                return {
-                    "ok": True,
-                    "error": None,
-                    "image_b64": f"data:image/bmp;base64,{b64}",
-                }
+            proc = None
+            for candidate in candidates:
+                try:
+                    proc = subprocess.run(
+                        cmd,
+                        input=candidate.encode("utf-8"),
+                        cwd=str(tmp_path),
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        timeout=8.0,
+                    )
+                except Exception as exc:
+                    return {"ok": False, "error": str(exc), "image_b64": None}
 
-            stderr_msg = proc.stderr.decode("utf-8", errors="replace").strip()
-            stdout_msg = proc.stdout.decode("utf-8", errors="replace").strip()
+                # Locate preview.bmp or any generated image in tmp_path
+                bmp_files = [out_bmp] if out_bmp.exists() else list(tmp_path.glob("*.bmp"))
+                if bmp_files and bmp_files[0].stat().st_size > 0:
+                    raw_bytes = bmp_files[0].read_bytes()
+                    b64 = base64.b64encode(raw_bytes).decode("ascii")
+                    return {
+                        "ok": True,
+                        "error": None,
+                        "image_b64": f"data:image/bmp;base64,{b64}",
+                    }
+
+            stderr_msg = proc.stderr.decode("utf-8", errors="replace").strip() if proc else ""
+            stdout_msg = proc.stdout.decode("utf-8", errors="replace").strip() if proc else ""
             return {
                 "ok": False,
-                "error": stderr_msg or stdout_msg or f"Compiler exited with code {proc.returncode}",
+                "error": stderr_msg or stdout_msg or f"Compiler exited with code {proc.returncode if proc else -1}",
                 "image_b64": None,
             }
 
@@ -192,6 +205,8 @@ class ExplorerSession:
 
         if ds_path_meta and Path(ds_path_meta).exists():
             ds_path = Path(ds_path_meta)
+        elif ds_path_meta and (PROJECT_ROOT / "code_dataset" / Path(ds_path_meta).name).exists():
+            ds_path = PROJECT_ROOT / "code_dataset" / Path(ds_path_meta).name
         elif input_dim == MAX_CODE_LEN:
             ds_path = PROJECT_ROOT / "code_dataset" / "code"
             subset_meta = subset_meta or 100
