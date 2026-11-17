@@ -209,11 +209,15 @@ class ExplorerSession:
 
         self.model = model
         self.dataset = dataset
-        self.model_path = str(ckpt_path.relative_to(PROJECT_ROOT)).replace("\\", "/") if ckpt_path.is_relative_to(PROJECT_ROOT) else str(ckpt_path)
+        self.model_path = (
+            str(ckpt_path.relative_to(PROJECT_ROOT)).replace("\\", "/")
+            if ckpt_path.is_relative_to(PROJECT_ROOT)
+            else str(ckpt_path)
+        )
         self.latent_coords = model.encode(dataset.inputs)
         self.latent_dim = int(self.latent_coords.shape[1])
         self.input_dim = input_dim
-        self.is_code_mode = (input_dim == MAX_CODE_LEN)
+        self.is_code_mode = input_dim == MAX_CODE_LEN
 
         if self.is_code_mode:
             self.raw_codes = [CodeDataset.decode_vector(row) for row in dataset.inputs]
@@ -236,7 +240,9 @@ class ExplorerSession:
                 "available_models": available,
             }
 
-        eval_res = self.model.evaluate_reconstruction(self.dataset.inputs, self.dataset.inputs, self.threshold)
+        eval_res = self.model.evaluate_reconstruction(
+            self.dataset.inputs, self.dataset.inputs, self.threshold
+        )
         h, w = self.dataset.image_shape
         return {
             "loaded": True,
@@ -278,7 +284,11 @@ class ExplorerSession:
         dists = np.linalg.norm(self.latent_coords - z_arr, axis=1)
         nearest_idx = np.argsort(dists)[:4]
         nearest = [
-            {"index": int(i), "label": self.dataset.labels[int(i)], "distance": float(dists[int(i)])}
+            {
+                "index": int(i),
+                "label": self.dataset.labels[int(i)],
+                "distance": float(dists[int(i)]),
+            }
             for i in nearest_idx
         ]
 
@@ -323,7 +333,7 @@ class ExplorerSession:
 
 
 # =========================================================================
-# UNIFIED WEB UI (Supports Model Loading, Code+Compiler Mode & Bitmap Mode)
+# UNIFIED WEB UI (2D Bitmap Character Mode vs. N-D Fractal Vocab Code Mode)
 # =========================================================================
 EXPLORER_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -344,14 +354,11 @@ EXPLORER_HTML = """<!DOCTYPE html>
   button.btn.secondary { background: #334155; color: var(--text); border: 1px solid var(--border); font-weight: 600; }
   button.btn:hover { opacity: 0.9; }
   .badge { background: #0284c7; padding: 4px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 700; }
-  .tabs { display: flex; gap: 8px; margin-bottom: 14px; }
-  .tab-btn { background: var(--panel); color: var(--text); border: 1px solid var(--border); padding: 9px 16px; border-radius: 8px; cursor: pointer; font-weight: 600; }
-  .tab-btn.active { background: var(--accent); color: #090d16; border-color: var(--accent); }
   .grid-2 { display: grid; grid-template-columns: 1.15fr 1fr; gap: 16px; }
   .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
   .card h2 { margin: 0 0 10px 0; font-size: 1rem; color: var(--accent); display: flex; justify-content: space-between; align-items: center; }
-  canvas.scatter { width: 100%; height: 420px; background: #070a12; border-radius: 8px; cursor: crosshair; border: 1px solid var(--border); }
-  .gallery-code { max-height: 210px; overflow-y: auto; background: #070a12; border: 1px solid var(--border); border-radius: 8px; padding: 6px; display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px; }
+  canvas.scatter { width: 100%; height: 480px; background: #070a12; border-radius: 8px; cursor: crosshair; border: 1px solid var(--border); display: block; }
+  .gallery-code { max-height: 240px; overflow-y: auto; background: #070a12; border: 1px solid var(--border); border-radius: 8px; padding: 6px; display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px; }
   .code-item { padding: 6px 9px; border-radius: 6px; background: var(--panel); border: 1px solid transparent; cursor: pointer; font-size: 0.78rem; font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .code-item:hover { border-color: var(--muted); }
   .code-item.selected { border-color: var(--accent); background: #0c4a6e; font-weight: 700; }
@@ -363,7 +370,8 @@ EXPLORER_HTML = """<!DOCTYPE html>
   .fractal-Basic-view img { width: 100%; height: 100%; object-fit: contain; }
   canvas.bitmap { width: 180px; aspect-ratio: 5 / 7; image-rendering: pixelated; border: 1px solid var(--border); border-radius: 6px; background: #000; margin: 0 auto; display: block; }
   .mono { font-family: monospace; font-size: 0.8rem; color: var(--muted); }
-  .pill { display: inline-block; background: #090d16; border: 1px solid var(--border); padding: 3px 8px; border-radius: 5px; font-size: 0.76rem; margin: 2px; }
+  .pill { display: inline-block; background: #090d16; border: 1px solid var(--border); padding: 3px 8px; border-radius: 5px; font-size: 0.76rem; margin: 2px; cursor: pointer; }
+  .pill:hover { border-color: var(--accent); }
 </style>
 </head>
 <body>
@@ -383,22 +391,14 @@ EXPLORER_HTML = """<!DOCTYPE html>
   </div>
 </div>
 
-<div class="tabs">
-  <button class="tab-btn active" onclick="switchTab('tabNd', this)">
-    N-Directions Slider Explorer (Code / Images in D-Dim Space)
-  </button>
-  <button class="tab-btn" onclick="switchTab('tab2d', this)">
-    2D Latent Plane Click & Drag Explorer (z₁, z₂)
-  </button>
-</div>
-
 <div class="grid-2">
-  <!-- LEFT PANEL: CONTROLS -->
+  <!-- LEFT PANEL: MODE-SPECIFIC CONTROLS -->
   <div class="card">
-    <div id="tabNd-left">
+    <!-- N-DIMENSIONAL CODE VOCAB EXPLORER (Only shown in Code Mode) -->
+    <div id="panel-nd-left" style="display:none;">
       <h2>
-        <span>1. Click N Dataset Samples to Load as Latent Directions</span>
-        <input type="text" id="filter-input" placeholder="Filter by name..." oninput="renderGallery()" style="font-size:0.78rem; padding:4px 8px;">
+        <span>1. Click Dataset Vocab Samples to Load as Latent Directions</span>
+        <input type="text" id="filter-input" placeholder="Filter vocab..." oninput="renderGallery()" style="font-size:0.78rem; padding:4px 8px;">
       </h2>
       <div id="gallery" class="gallery-code"></div>
 
@@ -413,37 +413,37 @@ EXPLORER_HTML = """<!DOCTYPE html>
       <div id="sliders-list"></div>
     </div>
 
-    <div id="tab2d-left" style="display:none;">
-      <h2>Click or Drag in the 2D Latent Plane (z₁, z₂)</h2>
-      <canvas id="scatter2d" class="scatter" width="680" height="420"></canvas>
+    <!-- 2D LATENT PLANE EXPLORER (Only shown in 2D Bitmap Mode) -->
+    <div id="panel-2d-left" style="display:none;">
+      <h2>
+        <span>2D Latent Space (z₁, z₂) — Click or Drag to Generate Characters</span>
+        <span class="mono" style="font-weight:normal;">Red = Current z</span>
+      </h2>
+      <canvas id="scatter2d" class="scatter" width="680" height="480"></canvas>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;">
         <div>
           <label class="mono">z₁:</label>
-          <input type="number" id="z1-input" step="0.05" value="0" onchange="onManual2D()">
+          <input type="number" id="z1-input" step="0.05" value="0" onchange="onManual2D()" style="width:100%;">
         </div>
         <div>
           <label class="mono">z₂:</label>
-          <input type="number" id="z2-input" step="0.05" value="0" onchange="onManual2D()">
+          <input type="number" id="z2-input" step="0.05" value="0" onchange="onManual2D()" style="width:100%;">
         </div>
       </div>
     </div>
-
-    <hr style="border-color:var(--border); margin:12px 0;">
-    <h2>2D Projection of Latent Space & Current Vector z</h2>
-    <canvas id="scatterMini" class="scatter" width="680" height="210" style="height:200px; cursor:crosshair;"></canvas>
   </div>
 
-  <!-- RIGHT PANEL: REAL-TIME DECODED CODE + COMPILER IMAGE OR BITMAP -->
+  <!-- RIGHT PANEL: REAL-TIME DECODED OUTPUT -->
   <div class="card">
     <h2>
       <span id="output-title">Real-Time Decoded Output</span>
-      <label id="syntax-toggle-wrap" class="mono" style="font-weight:normal;">
+      <label id="syntax-toggle-wrap" class="mono" style="font-weight:normal; display:none;">
         <input type="checkbox" id="syntax-assist" checked onchange="triggerDecode()">
         Compiler Syntax Assist on Mid-Interpolation
       </label>
     </h2>
 
-    <!-- CODE + COMPILER VIEW (Ej2) -->
+    <!-- CODE + COMPILER VIEW (N-Dimensional Code Mode) -->
     <div id="code-output-panel" style="display:none;">
       <div class="code-img-split">
         <div>
@@ -463,7 +463,7 @@ EXPLORER_HTML = """<!DOCTYPE html>
       </div>
     </div>
 
-    <!-- BITMAP VIEW (Ej1) -->
+    <!-- BITMAP VIEW (2D Character Image Mode) -->
     <div id="bitmap-output-panel" style="display:none;">
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; text-align:center; padding:20px 0;">
         <div>
@@ -488,9 +488,8 @@ EXPLORER_HTML = """<!DOCTYPE html>
 
 <script>
 let STATE = null;
-let activeTab = 'tabNd';
-let selectedDirs = []; // [{index, label, z, weight}]
-let probe2D = [0, 0];
+let selectedDirs = []; // Only used in N-D Code mode: [{index, label, z, weight}]
+let probe2D = [0, 0];  // Only used in 2D Bitmap mode: [z1, z2]
 let bounds = {minX: -3, maxX: 3, minY: -3, maxY: 3};
 let decodeTimer = null;
 
@@ -541,47 +540,59 @@ async function loadModelByPath(path) {
 }
 
 function setupLoadedState() {
+  const isCode = Boolean(STATE.is_code_mode);
+
   document.getElementById('status-line').textContent =
     `Loaded: ${STATE.current_model_path} | Samples: ${STATE.labels.length} | Input: ${STATE.input_dim}D → Latent: ${STATE.latent_dim}D`;
   document.getElementById('mode-badge').textContent =
-    STATE.is_code_mode ? `CODE + COMPILER (${STATE.latent_dim}D)` : `BITMAP (${STATE.latent_dim}D)`;
+    isCode ? `CODE + COMPILER (${STATE.latent_dim}D)` : `BITMAP (${STATE.latent_dim}D)`;
 
-  document.getElementById('code-output-panel').style.display = STATE.is_code_mode ? 'block' : 'none';
-  document.getElementById('bitmap-output-panel').style.display = STATE.is_code_mode ? 'none' : 'block';
-  document.getElementById('syntax-toggle-wrap').style.display = STATE.is_code_mode ? 'inline-block' : 'none';
+  // Toggle Left & Right Panels strictly by mode
+  document.getElementById('panel-nd-left').style.display = isCode ? 'block' : 'none';
+  document.getElementById('panel-2d-left').style.display = isCode ? 'none' : 'block';
+  document.getElementById('code-output-panel').style.display = isCode ? 'block' : 'none';
+  document.getElementById('bitmap-output-panel').style.display = isCode ? 'none' : 'block';
+  document.getElementById('syntax-toggle-wrap').style.display = isCode ? 'inline-block' : 'none';
 
-  computeBounds();
   selectedDirs = [];
-  renderGallery();
 
-  if (STATE.labels.length >= 2) {
-    toggleDirection(0, 1.0);
-    toggleDirection(1, 0.0);
+  if (isCode) {
+    renderGallery();
+    if (STATE.labels.length >= 2) {
+      toggleDirection(0, 1.0);
+      toggleDirection(1, 0.0);
+    } else {
+      renderSliders();
+      triggerDecode();
+    }
+  } else {
+    computeBounds();
+    if (STATE.latent_coords && STATE.latent_coords.length > 0) {
+      probe2D = [STATE.latent_coords[0][0] ?? 0, STATE.latent_coords[0][1] ?? 0];
+    } else {
+      probe2D = [0, 0];
+    }
+    document.getElementById('z1-input').value = probe2D[0].toFixed(3);
+    document.getElementById('z2-input').value = probe2D[1].toFixed(3);
+    triggerDecode();
   }
 }
 
 function computeBounds() {
   const xs = STATE.latent_coords.map(c => c[0] ?? 0);
   const ys = STATE.latent_coords.map(c => c[1] ?? 0);
-  const px = Math.max(0.5, (Math.max(...xs) - Math.min(...xs)) * 0.15);
-  const py = Math.max(0.5, (Math.max(...ys) - Math.min(...ys)) * 0.15);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const px = Math.max(0.5, (maxX - minX) * 0.15);
+  const py = Math.max(0.5, (maxY - minY) * 0.15);
   bounds = {
-    minX: Math.min(...xs) - px, maxX: Math.max(...xs) + px,
-    minY: Math.min(...ys) - py, maxY: Math.max(...ys) + py
+    minX: minX - px, maxX: maxX + px,
+    minY: minY - py, maxY: maxY + py
   };
 }
 
-function switchTab(tab, btn) {
-  activeTab = tab;
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  document.getElementById('tabNd-left').style.display = (tab === 'tabNd') ? 'block' : 'none';
-  document.getElementById('tab2d-left').style.display = (tab === 'tab2d') ? 'block' : 'none';
-  triggerDecode();
-}
-
 function renderGallery() {
-  if (!STATE || !STATE.loaded) return;
+  if (!STATE || !STATE.loaded || !STATE.is_code_mode) return;
   const q = (document.getElementById('filter-input').value || '').toLowerCase();
   const gal = document.getElementById('gallery');
   gal.innerHTML = '';
@@ -618,7 +629,7 @@ function toggleDirection(idx, defaultWeight = null) {
 function renderSliders() {
   const list = document.getElementById('sliders-list');
   if (selectedDirs.length === 0) {
-    list.innerHTML = '<div class="mono">Click any code/pattern above to add its latent vector direction.</div>';
+    list.innerHTML = '<div class="mono">Click any vocab code sample above to add its latent vector direction.</div>';
     return;
   }
   list.innerHTML = '';
@@ -682,7 +693,7 @@ function clearDirections() {
 
 function computeCurrentLatentZ() {
   if (!STATE || !STATE.loaded) return [0, 0];
-  if (activeTab === 'tab2d') return probe2D;
+  if (!STATE.is_code_mode) return probe2D;
   const dim = STATE.latent_dim;
   const z = new Array(dim).fill(0.0);
   selectedDirs.forEach(d => {
@@ -693,27 +704,39 @@ function computeCurrentLatentZ() {
 
 function scheduleDecode() {
   if (decodeTimer) clearTimeout(decodeTimer);
-  decodeTimer = setTimeout(triggerDecode, 90);
+  decodeTimer = setTimeout(triggerDecode, 60);
 }
 
 async function triggerDecode() {
   if (!STATE || !STATE.loaded) return;
   const z = computeCurrentLatentZ();
-  drawScatter('scatterMini', z);
-  if (activeTab === 'tab2d') drawScatter('scatter2d', z);
+
+  if (!STATE.is_code_mode) {
+    drawScatter2D(z);
+  }
 
   const res = await fetch('/api/decode', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
       z,
-      basis_indices: activeTab === 'tabNd' ? selectedDirs.map(d => d.index) : [],
-      basis_weights: activeTab === 'tabNd' ? selectedDirs.map(d => d.weight) : [],
+      basis_indices: STATE.is_code_mode ? selectedDirs.map(d => d.index) : [],
+      basis_weights: STATE.is_code_mode ? selectedDirs.map(d => d.weight) : [],
       syntax_assist: document.getElementById('syntax-assist').checked
     })
   });
   const data = await res.json();
   renderDecodedOutput(data);
+}
+
+function snapToSample(idx) {
+  if (!STATE || !STATE.loaded || STATE.is_code_mode) return;
+  const pt = STATE.latent_coords[idx];
+  if (!pt) return;
+  probe2D = [pt[0] ?? 0, pt[1] ?? 0];
+  document.getElementById('z1-input').value = probe2D[0].toFixed(3);
+  document.getElementById('z2-input').value = probe2D[1].toFixed(3);
+  triggerDecode();
 }
 
 function renderDecodedOutput(data) {
@@ -722,7 +745,7 @@ function renderDecodedOutput(data) {
     `[${data.z.slice(0, 8).map(v => v.toFixed(3)).join(', ')}${data.z.length > 8 ? ', ...' : ''}]`;
 
   document.getElementById('nearest-list').innerHTML = (data.nearest || []).map(
-    n => `<span class="pill"><b>${n.label}</b> (d=${n.distance.toFixed(2)})</span>`
+    n => `<span class="pill" onclick="snapToSample(${n.index})" title="Click to jump to sample"><b>${n.label}</b> (d=${n.distance.toFixed(2)})</span>`
   ).join('');
 
   if (data.is_code_mode) {
@@ -786,7 +809,7 @@ function drawBitmap(canvasId, grid, isProb) {
 }
 
 function worldToCanvas(x, y, canvas) {
-  const pad = 24;
+  const pad = 36;
   const w = canvas.width - 2 * pad, h = canvas.height - 2 * pad;
   return [
     pad + ((x - bounds.minX) / (bounds.maxX - bounds.minX || 1)) * w,
@@ -795,7 +818,7 @@ function worldToCanvas(x, y, canvas) {
 }
 
 function canvasToWorld(cx, cy, canvas) {
-  const pad = 24;
+  const pad = 36;
   const w = canvas.width - 2 * pad, h = canvas.height - 2 * pad;
   return [
     bounds.minX + ((cx - pad) / w) * (bounds.maxX - bounds.minX),
@@ -803,54 +826,68 @@ function canvasToWorld(cx, cy, canvas) {
   ];
 }
 
-function drawScatter(canvasId, currentZ) {
-  const canvas = document.getElementById(canvasId);
-  if (!canvas || !STATE || !STATE.loaded) return;
+function drawScatter2D(currentZ) {
+  const canvas = document.getElementById('scatter2d');
+  if (!canvas || !STATE || !STATE.loaded || STATE.is_code_mode) return;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+  // Draw zero axes if within bounds
   const [ox, oy] = worldToCanvas(0, 0, canvas);
   ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(0, oy); ctx.lineTo(canvas.width, oy); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(ox, 0); ctx.lineTo(ox, canvas.height); ctx.stroke();
 
+  // Draw axis labels
+  ctx.fillStyle = '#64748b';
+  ctx.font = '12px monospace';
+  ctx.fillText('z₁', canvas.width - 24, Math.min( Math.max(oy - 6, 16), canvas.height - 8 ));
+  ctx.fillText('z₂', Math.min( Math.max(ox + 6, 8), canvas.width - 24 ), 16);
+
+  // Draw dataset character points and their text labels
+  ctx.font = 'bold 13px monospace';
   STATE.latent_coords.forEach((pt, idx) => {
     const [cx, cy] = worldToCanvas(pt[0] ?? 0, pt[1] ?? 0, canvas);
-    ctx.fillStyle = '#475569';
-    ctx.beginPath(); ctx.arc(cx, cy, 3.5, 0, Math.PI * 2); ctx.fill();
-  });
+    const lbl = STATE.labels[idx] ?? String(idx);
 
-  selectedDirs.forEach(d => {
-    const [dx, dy] = worldToCanvas(d.z[0] ?? 0, d.z[1] ?? 0, canvas);
-    ctx.strokeStyle = '#38bdf8';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(dx, dy); ctx.stroke();
+    // Point marker
     ctx.fillStyle = '#38bdf8';
-    ctx.beginPath(); ctx.arc(dx, dy, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Character label with dark outline for readability
+    ctx.strokeStyle = '#070a12';
+    ctx.lineWidth = 3;
+    ctx.strokeText(lbl, cx + 6, cy - 5);
+    ctx.fillStyle = '#f1f5f9';
+    ctx.fillText(lbl, cx + 6, cy - 5);
   });
 
+  // Draw active probe point z
   const [px, py] = worldToCanvas(currentZ[0] ?? 0, currentZ[1] ?? 0, canvas);
   ctx.fillStyle = '#f43f5e';
-  ctx.beginPath(); ctx.arc(px, py, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath();
+  ctx.arc(px, py, 6.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
 }
 
 function bindCanvasDrag(canvasId) {
   const c = document.getElementById(canvasId);
   let dragging = false;
   const pick = (e) => {
-    if (!STATE || !STATE.loaded) return;
+    if (!STATE || !STATE.loaded || STATE.is_code_mode) return;
     const r = c.getBoundingClientRect();
     const cx = (e.clientX - r.left) * (c.width / r.width);
     const cy = (e.clientY - r.top) * (c.height / r.height);
     probe2D = canvasToWorld(cx, cy, c);
     document.getElementById('z1-input').value = probe2D[0].toFixed(3);
     document.getElementById('z2-input').value = probe2D[1].toFixed(3);
-    if (activeTab !== 'tab2d') {
-      activeTab = 'tab2d';
-      document.querySelectorAll('.tab-btn')[1].click();
-    } else {
-      scheduleDecode();
-    }
+    scheduleDecode();
   };
   c.addEventListener('mousedown', e => { dragging = true; pick(e); });
   window.addEventListener('mousemove', e => { if (dragging) pick(e); });
@@ -864,7 +901,6 @@ function onManual2D() {
 }
 
 bindCanvasDrag('scatter2d');
-bindCanvasDrag('scatterMini');
 refreshModelList();
 </script>
 </body>
