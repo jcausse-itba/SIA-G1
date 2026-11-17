@@ -109,3 +109,31 @@ uv run python study/ej2/_main_.py --output-dir study/ej2/mi_resultado
 ```
 
 El modelo guardado se puede abrir con el explorador del espacio latente (`latent_explorer.py`).
+
+## Estudio sobre imágenes BMP
+
+El estudio independiente de imágenes usa los BMP provistos en `code_dataset/images/`. Desde
+`tp-5`, ejecutar:
+
+```powershell
+uv run python study/ej2/images/_main_.py
+```
+
+Redimensiona las imágenes a 32 × 18 RGB, normaliza sus canales a `[0, 1]` y entrena un AE y un
+VAE de dimensión latente 2. La arquitectura fija es encoder `1728 → 128 → 32 → 2` y decoder
+`2 → 32 → 128 → 1728`. La configuración queda fija: `lr=0.001`, `kl_weight=0.00001`,
+activaciones ocultas `tanh`, latente y salida `linear`, Adam, batch size 8 y 2500 épocas.
+El manifiesto `dataset_manifest.csv` indica los BMP truncados que pudieron recuperarse al leer
+sus datos disponibles.
+
+Los gráficos y métricas se escriben en `study/ej2/images/`:
+
+- `dataset_muestras.html`: muestras agrupadas por categoría.
+- `arquitectura_vae.html` y `entrenamiento_vae.html`: diagrama del VAE y curvas de pérdidas.
+- `espacio_latente_ae_vae.html` y `grilla_decoder_latente.html`: espacios latentes y grilla 2D
+  generada por el decoder.
+- `muestras_aleatorias.html` e `interpolacion_latente.html`: generación desde el prior e
+  interpolación entre imágenes del dataset.
+- `reconstrucciones_ae_vae.html` y `comparacion_ae_vae.html`: reconstrucciones visuales y tabla
+  de métricas AE frente a VAE.
+- `resumen.csv`: configuración y métricas numéricas.

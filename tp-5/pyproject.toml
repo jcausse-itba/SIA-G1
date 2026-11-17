@@ -16,6 +16,7 @@ dependencies = [
     "numpy>=2.5.3",
     "optuna>=5.1.0",
     "pandas>=3.0.6",
+    "pillow>=12.3.0",
     "plotly>=7.1.0",
     "rust-matmul",
     "tabulate>=0.10.0",
