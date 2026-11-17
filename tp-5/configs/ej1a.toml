@@ -1,0 +1,32 @@
+# =============================================================================
+# TP5 - Ejercicio 1a: Autoencoder Básico Minimal (font.h)
+# Ejecución: python -m tp_5 -c configs/ej1a.toml
+# =============================================================================
+
+[dataset]
+dataset_path = "doc/font.h"
+
+[model]
+model_type = "autoencoder"
+encoder_layers = [35, 64, 16, 2]
+decoder_layers = [16, 64, 35]
+hidden_activation = "tanh"
+latent_activation = "linear"
+output_activation = "sigmoid"
+beta = 1.0
+
+[training]
+loss = "binary_cross_entropy"
+optimizer = "adam"
+learning_rate = 0.005
+lr_scheduler = "constant"
+batch_size = 8
+max_epochs = 4000
+threshold = 0.5
+beta1 = 0.9
+beta2 = 0.999
+epsilon = 1e-8
+
+[persistence]
+save_model_path = "saved_models/ej1a_autoencoder_minimal.pkl"
+output_dir = "results/ej1a"
